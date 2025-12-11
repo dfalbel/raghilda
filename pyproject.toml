@@ -41,13 +41,13 @@ dev = [
 ]
 
 [tool.taskipy.tasks]
-docs_build = "cd docs && quartodoc build && quarto render"
-docs_preview = "task docs_build && cd docs && quarto preview"
-docs = "task docs_preview"
-tests = "pytest tests"
-types_check = "pyright"
-format = "ruff format src tests"
-format_check = "task format -- --check"
-lint_check = "ruff check"
-lint = "task lint_check -- --fix"
-check = "task format_check && task lint_check && task types_check && task tests"
+docs_build = "cd docs && ../.venv/bin/quartodoc build && quarto render"
+docs_preview = "cd docs && ../.venv/bin/quartodoc build && quarto render && quarto preview"
+docs = "cd docs && ../.venv/bin/quartodoc build && quarto render && quarto preview"
+tests = "./.venv/bin/pytest tests"
+types_check = "./.venv/bin/pyright --pythonpath ./.venv/bin/python"
+format = "./.venv/bin/ruff format src tests"
+format_check = "./.venv/bin/ruff format --check src tests"
+lint_check = "./.venv/bin/ruff check"
+lint = "./.venv/bin/ruff check --fix"
+check = "sh -c './.venv/bin/ruff format --check src tests && ./.venv/bin/ruff check && ./.venv/bin/pyright --pythonpath ./.venv/bin/python && ./.venv/bin/pytest tests'"
