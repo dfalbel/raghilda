@@ -49,6 +49,37 @@ for chunk in chunks:
     print(chunk.text)
 ```
 
+## Metadata Filtering
+
+Define metadata columns once, then filter retrieval scope:
+
+```python
+store = DuckDBStore.create(
+    location="chatlas.db",
+    embed=EmbeddingOpenAI(),
+    metadata={"tenant": str, "priority": int},
+)
+
+chunks = store.retrieve(
+    "stream response",
+    top_k=5,
+    metadata_filter="tenant = 'docs' AND priority >= 2",
+)
+
+# Or pass a dict AST:
+chunks = store.retrieve(
+    "stream response",
+    top_k=5,
+    metadata_filter={
+        "type": "and",
+        "filters": [
+            {"type": "in", "key": "tenant", "value": ["docs", "blog"]},
+            {"type": "gte", "key": "priority", "value": 2},
+        ],
+    },
+)
+```
+
 ## Links
 
 - [Documentation](https://dfalbel.github.io/raghilda/)

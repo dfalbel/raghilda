@@ -1,0 +1,98 @@
+---
+title: "Metadata Filters"
+guide-section: "Getting Started"
+---
+
+RagHilda stores can now keep user-defined metadata per chunk and filter retrieval with a small SQL-like predicate language.
+
+## 1. Declare Metadata Columns At Store Creation
+
+Declare the metadata schema once when creating the store:
+
+```{python}
+#| eval: false
+from raghilda.store import DuckDBStore
+
+store = DuckDBStore.create(
+    location="docs.duckdb",
+    embed=None,
+    metadata={
+        "tenant": str,
+        "topic": str,
+        "priority": int,
+        "is_public": bool,
+    },
+)
+```
+
+## 2. Add Metadata During Insertion
+
+Use document-level metadata and optional per-chunk metadata:
+
+```{python}
+#| eval: false
+from raghilda.document import MarkdownDocument
+from raghilda.chunk import MarkdownChunk
+
+doc = MarkdownDocument(
+    origin="guide.md",
+    content="alpha beta gamma",
+    metadata={"tenant": "docs", "topic": "reference"},
+)
+doc.chunks = [
+    MarkdownChunk(text="alpha", start_index=0, end_index=5, token_count=5),
+    MarkdownChunk(
+        text="beta",
+        start_index=6,
+        end_index=10,
+        token_count=4,
+        metadata={"priority": 10, "is_public": False},
+    ),
+]
+store.insert(doc)
+```
+
+Chunk metadata overrides document metadata for that chunk only. Unspecified metadata values are `None`.
+
+## 3. Filter Retrieval With `metadata_filter`
+
+The `metadata_filter` string is a SQL-like predicate:
+
+```{python}
+#| eval: false
+chunks = store.retrieve(
+    "beta",
+    top_k=5,
+    metadata_filter="tenant = 'docs' AND priority >= 5 AND is_public = FALSE",
+)
+```
+
+You can also pass a dict filter AST instead of a string:
+
+```{python}
+#| eval: false
+chunks = store.retrieve(
+    "beta",
+    top_k=5,
+    metadata_filter={
+        "type": "and",
+        "filters": [
+            {"type": "in", "key": "tenant", "value": ["docs", "blog"]},
+            {"type": "gte", "key": "priority", "value": 5},
+        ],
+    },
+)
+```
+
+Supported operators:
+
+- `=`, `!=`, `>`, `>=`, `<`, `<=`
+- `IN (...)`, `NOT IN (...)`
+- `AND`, `OR`, parentheses
+- `NULL` comparisons through `= NULL` / `!= NULL`
+
+## Notes by Backend
+
+- `DuckDBStore`: metadata columns are real table columns and filter strings compile to SQL `WHERE` clauses.
+- `ChromaDBStore`: the same filter string compiles to Chroma `where` filters.
+- `OpenAIStore`: metadata is stored as file attributes; filters compile to OpenAI vector search filters.

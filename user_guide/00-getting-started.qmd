@@ -249,6 +249,7 @@ for chunk in chunks:
 
 ## Next Steps
 
+- Learn schema-based retrieval scoping with [Metadata Filters](03-metadata-filters.qmd)
 - Explore [ChromaDB Store](50-chromadb-store.qmd) for an alternative storage backend
 - See the [API Reference](/reference/index.qmd) for detailed documentation
 - Check out the [examples](https://github.com/dfalbel/py-ragnar/tree/main/examples) for more use cases

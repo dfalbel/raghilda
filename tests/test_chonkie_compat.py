@@ -86,7 +86,7 @@ class TestChonkieDocumentCompatibility:
 class TestChonkieChunkerWithStore:
     def test_store_accepts_chonkie_chunked_document(self):
         """DuckDBStore should accept documents chunked by chonkie."""
-        from chonkie import TokenChunker
+        from chonkie import TokenChunker  # pyright: ignore[reportPrivateImportUsage]
 
         # Create a store without embeddings
         store = DuckDBStore.create(
@@ -119,7 +119,7 @@ class TestChonkieChunkerWithStore:
 
     def test_store_ingest_with_chonkie_prepare_function(self):
         """DuckDBStore.ingest should work with a chonkie-based prepare function."""
-        from chonkie import TokenChunker
+        from chonkie import TokenChunker  # pyright: ignore[reportPrivateImportUsage]
         import tempfile
         import os
 

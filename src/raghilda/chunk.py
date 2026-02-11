@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Optional, Union
+from typing import Any, Optional, Union
 from .types import ChunkLike, IntoChunk
 
 __all__ = ["Chunk", "MarkdownChunk", "Metric", "RetrievedChunk"]
@@ -26,6 +26,8 @@ class Chunk:
     context
         Optional heading context showing the document hierarchy at this
         chunk's position (e.g., the Markdown headings that apply).
+    metadata
+        Optional user-defined metadata for filtering and scoping retrieval.
     """
 
     text: str
@@ -33,6 +35,7 @@ class Chunk:
     end_index: int
     token_count: int
     context: Optional[str] = None
+    metadata: Optional[dict[str, Any]] = None
 
     @classmethod
     def from_any(cls, chunk: Union[ChunkLike, IntoChunk]) -> "Chunk":
@@ -67,6 +70,7 @@ class Chunk:
                 end_index=chunk.end_index,
                 token_count=chunk.token_count,
                 context=getattr(chunk, "context", None),
+                metadata=dict(getattr(chunk, "metadata", {}) or {}),
             )
         raise TypeError(f"Cannot convert {type(chunk).__name__} to Chunk")
 

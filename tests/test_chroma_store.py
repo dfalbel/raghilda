@@ -1,4 +1,5 @@
 import pytest
+import socket
 
 pytest.importorskip("chromadb")
 
@@ -8,6 +9,23 @@ from raghilda.chunk import MarkdownChunk, RetrievedChunk
 
 
 from chromadb import EmbeddingFunction, Embeddings, Documents
+
+
+def _can_reach_openai(timeout: float = 2.0) -> bool:
+    try:
+        with socket.create_connection(("api.openai.com", 443), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
+
+def _require_openai_integration() -> None:
+    import os
+
+    if not os.getenv("OPENAI_API_KEY"):
+        pytest.skip("OPENAI_API_KEY not set")
+    if not _can_reach_openai():
+        pytest.skip("OpenAI API is not reachable from this environment")
 
 
 class DummyEmbeddingFunction(EmbeddingFunction):
@@ -169,17 +187,61 @@ def test_retrieve_with_deoverlap():
     assert len(results_separate) == 2
 
 
+def test_insert_and_retrieve_with_metadata_filter():
+    store = ChromaDBStore.create(
+        location=":memory:",
+        embed=DummyEmbeddingFunction(),
+        name="test_metadata_filter",
+        overwrite=True,
+        metadata={"tenant": str, "topic": str},
+    )
+
+    doc = _make_doc()
+    doc.metadata = {"tenant": "docs"}
+    assert doc.chunks is not None
+    doc.chunks[0].metadata = {"topic": "intro"}
+    store.insert(doc)
+
+    intro = store.retrieve(
+        "test",
+        top_k=5,
+        metadata_filter="tenant = 'docs' AND topic = 'intro'",
+        deoverlap=False,
+    )
+    assert len(intro) >= 1
+    for chunk in intro:
+        assert chunk.metadata is not None
+        assert chunk.metadata.get("tenant") == "docs"
+        assert chunk.metadata.get("topic") == "intro"
+
+    intro_dict = store.retrieve(
+        "test",
+        top_k=5,
+        metadata_filter={
+            "type": "and",
+            "filters": [
+                {"type": "eq", "key": "tenant", "value": "docs"},
+                {"type": "in", "key": "topic", "value": ["intro", "other"]},
+            ],
+        },
+        deoverlap=False,
+    )
+    assert len(intro_dict) >= 1
+    for chunk in intro_dict:
+        assert chunk.metadata is not None
+        assert chunk.metadata.get("tenant") == "docs"
+        assert chunk.metadata.get("topic") == "intro"
+
+
 class TestChromaConvertible:
     """Tests for the ChromaConvertible protocol and to_chroma() conversion."""
 
     def test_embedding_openai_to_chroma_works(self):
         """EmbeddingOpenAI.to_chroma() should return a working ChromaDB function."""
-        import os
         from chromadb.utils.embedding_functions import OpenAIEmbeddingFunction
         from raghilda.embedding import EmbeddingOpenAI
 
-        if not os.getenv("OPENAI_API_KEY"):
-            pytest.skip("OPENAI_API_KEY not set")
+        _require_openai_integration()
 
         provider = EmbeddingOpenAI(model="text-embedding-3-small")
         chroma_func = provider.to_chroma()
@@ -232,11 +294,9 @@ class TestChromaConvertible:
 
     def test_create_store_with_raghilda_provider_insert_retrieve(self):
         """ChromaDBStore should work with raghilda EmbeddingProvider for insert and retrieve."""
-        import os
         from raghilda.embedding import EmbeddingOpenAI
 
-        if not os.getenv("OPENAI_API_KEY"):
-            pytest.skip("OPENAI_API_KEY not set")
+        _require_openai_integration()
 
         provider = EmbeddingOpenAI()
         store = ChromaDBStore.create(
