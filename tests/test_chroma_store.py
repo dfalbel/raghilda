@@ -198,7 +198,7 @@ def test_insert_and_retrieve_with_attributes_filter():
     )
 
     doc = _make_doc()
-    doc.attributes = {"tenant": "docs"}
+    doc.attributes = {"tenant": "docs", "topic": "general"}
     assert doc.chunks is not None
     doc.chunks[0].attributes = {"topic": "intro"}
     store.insert(doc)
@@ -261,6 +261,32 @@ def test_create_rejects_vector_metadata_annotations():
             name="test_metadata_schema_vector_reject",
             overwrite=True,
             attributes={"embedding25": Annotated[list[float], 25]},
+        )
+
+
+def test_create_rejects_optional_metadata_annotations():
+    with pytest.raises(
+        ValueError, match="Optional attribute values are not supported for 'topic'"
+    ):
+        ChromaDBStore.create(
+            location=":memory:",
+            embed=DummyEmbeddingFunction(),
+            name="test_metadata_schema_optional_reject",
+            overwrite=True,
+            attributes={"tenant": str, "topic": str | None},
+        )
+
+
+def test_create_rejects_defaulted_metadata_annotations():
+    with pytest.raises(
+        ValueError, match="Optional attribute values are not supported for 'priority'"
+    ):
+        ChromaDBStore.create(
+            location=":memory:",
+            embed=DummyEmbeddingFunction(),
+            name="test_metadata_schema_default_reject",
+            overwrite=True,
+            attributes={"tenant": str, "priority": (int, 0)},
         )
 
 

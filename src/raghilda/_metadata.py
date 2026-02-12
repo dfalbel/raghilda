@@ -2,12 +2,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import re
+import types
 from typing import (
     Annotated,
     Any,
     Iterable,
     Mapping,
     Optional,
+    Union,
     TypeAlias,
     cast,
     get_args,
@@ -29,6 +31,16 @@ MetadataValue = MetadataScalar | list[float] | None
 MetadataType: TypeAlias = MetadataScalarType | MetadataFloatVectorType
 AttributesSchemaSpec: TypeAlias = Mapping[str, Any] | type[Any]
 MetadataFilter: TypeAlias = str | Mapping[str, Any]
+_MISSING = object()
+
+
+@dataclass(frozen=True)
+class MetadataAttributeSpec:
+    metadata_type: MetadataType
+    nullable: bool
+    required: bool
+    default: MetadataValue = None
+
 
 _METADATA_SCALAR_TYPE_TO_NAME: dict[MetadataScalarType, str] = {
     str: "str",
@@ -47,40 +59,133 @@ def normalize_attributes_schema(
     *,
     reserved_columns: Iterable[str],
     allow_vector_types: bool = False,
+    allow_optional_values: bool = True,
 ) -> dict[str, MetadataType]:
-    schema_items = dict(_attributes_schema_items(attributes))
-    reserved = set(reserved_columns)
-    schema: dict[str, MetadataType] = {}
+    attributes_spec = normalize_attributes_spec(
+        attributes=attributes,
+        reserved_columns=reserved_columns,
+        allow_vector_types=allow_vector_types,
+        allow_optional_values=allow_optional_values,
+    )
+    return {key: spec.metadata_type for key, spec in attributes_spec.items()}
 
-    for key, annotation in schema_items.items():
+
+def normalize_attributes_spec(
+    attributes: Optional[AttributesSchemaSpec],
+    *,
+    reserved_columns: Iterable[str],
+    allow_vector_types: bool = False,
+    allow_optional_values: bool = True,
+) -> dict[str, MetadataAttributeSpec]:
+    schema_items = _attributes_schema_items(attributes)
+    reserved = set(reserved_columns)
+    spec: dict[str, MetadataAttributeSpec] = {}
+
+    for key, item in schema_items.items():
         if not isinstance(key, str) or not key:
             raise ValueError("Attribute column names must be non-empty strings")
         if key in reserved:
             raise ValueError(f"Attribute column '{key}' is reserved")
 
-        schema[key] = _parse_metadata_type(
+        metadata_type, nullable = _parse_metadata_type(
             key=key,
-            annotation=annotation,
+            annotation=item["annotation"],
             allow_vector_types=allow_vector_types,
         )
+        has_default = item["has_default"]
+        default_value = item["default"]
 
-    return schema
+        if has_default:
+            required = False
+        elif nullable:
+            required = False
+            default_value = None
+        else:
+            required = True
+
+        if not allow_optional_values and not required:
+            raise ValueError(
+                f"Optional attribute values are not supported for '{key}' in this backend"
+            )
+
+        if required:
+            spec[key] = MetadataAttributeSpec(
+                metadata_type=metadata_type,
+                nullable=nullable,
+                required=True,
+            )
+            continue
+
+        if default_value is None and not nullable:
+            raise ValueError(
+                f"Default None for attribute '{key}' requires an optional type annotation"
+            )
+
+        normalized_default = _normalize_metadata_value(
+            key,
+            default_value,
+            metadata_type,
+            context="default attribute",
+            allow_none=nullable,
+        )
+        spec[key] = MetadataAttributeSpec(
+            metadata_type=metadata_type,
+            nullable=nullable,
+            required=False,
+            default=normalized_default,
+        )
+
+    return spec
 
 
 def _attributes_schema_items(
     attributes: Optional[AttributesSchemaSpec],
-) -> Mapping[str, Any]:
+) -> dict[str, dict[str, Any]]:
     if attributes is None:
         return {}
     if isinstance(attributes, Mapping):
-        return attributes
+        out: dict[str, dict[str, Any]] = {}
+        for key, value in attributes.items():
+            if isinstance(value, tuple):
+                if len(value) != 2:
+                    raise ValueError(
+                        f"Attribute schema tuple for '{key}' must be (type, default)"
+                    )
+                out[key] = {
+                    "annotation": value[0],
+                    "has_default": True,
+                    "default": value[1],
+                }
+            else:
+                out[key] = {
+                    "annotation": value,
+                    "has_default": False,
+                    "default": None,
+                }
+        return out
     if isinstance(attributes, type):
         try:
-            return get_type_hints(attributes, include_extras=True)
+            annotations = get_type_hints(attributes, include_extras=True)
         except Exception as e:
             raise ValueError(
                 f"Failed to parse attribute annotations from '{attributes.__name__}': {e}"
             )
+        class_vars = vars(attributes)
+        out: dict[str, dict[str, Any]] = {}
+        for key, annotation in annotations.items():
+            if key in class_vars:
+                out[key] = {
+                    "annotation": annotation,
+                    "has_default": True,
+                    "default": class_vars[key],
+                }
+            else:
+                out[key] = {
+                    "annotation": annotation,
+                    "has_default": False,
+                    "default": None,
+                }
+        return out
     raise ValueError("attributes must be a mapping or a class with type annotations")
 
 
@@ -89,25 +194,28 @@ def _parse_metadata_type(
     key: str,
     annotation: Any,
     allow_vector_types: bool,
-) -> MetadataType:
+) -> tuple[MetadataType, bool]:
+    annotation, nullable = _unwrap_optional_annotation(annotation)
+
     if isinstance(annotation, type) and annotation in _METADATA_SCALAR_TYPE_TO_NAME:
-        return cast(MetadataScalarType, annotation)
+        return cast(MetadataScalarType, annotation), nullable
 
     if isinstance(annotation, MetadataFloatVectorType):
         if not allow_vector_types:
             raise ValueError(
                 f"Vector attribute types are not supported for '{key}' in this backend"
             )
-        return annotation
+        return annotation, nullable
 
     origin = get_origin(annotation)
     if origin is Annotated:
         args = get_args(annotation)
-        base = args[0]
+        base, base_nullable = _unwrap_optional_annotation(args[0])
         extras = args[1:]
+        nullable = nullable or base_nullable
 
         if isinstance(base, type) and base in _METADATA_SCALAR_TYPE_TO_NAME:
-            return cast(MetadataScalarType, base)
+            return cast(MetadataScalarType, base), nullable
 
         vector_type = _parse_vector_annotation(base, extras)
         if vector_type is None:
@@ -118,10 +226,10 @@ def _parse_metadata_type(
             raise ValueError(
                 f"Vector attribute types are not supported for '{key}' in this backend"
             )
-        return vector_type
+        return vector_type, nullable
 
     raise ValueError(
-        f"Attribute type for '{key}' must be one of: str, int, float, bool, or Annotated[list[float], N]"
+        f"Attribute type for '{key}' must be one of: str, int, float, bool, optional scalar (T | None), or Annotated[list[float], N]"
     )
 
 
@@ -142,6 +250,23 @@ def _parse_vector_annotation(
         )
 
     return MetadataFloatVectorType(dimension=dimensions[0])
+
+
+def _unwrap_optional_annotation(annotation: Any) -> tuple[Any, bool]:
+    origin = get_origin(annotation)
+    if origin not in {Union, types.UnionType}:
+        return annotation, False
+
+    args = get_args(annotation)
+    non_none_args = [arg for arg in args if arg is not type(None)]
+    has_none = len(non_none_args) != len(args)
+    if not has_none:
+        return annotation, False
+    if len(non_none_args) != 1:
+        raise ValueError(
+            f"Unsupported union annotation '{annotation}'. Only optional unions like T | None are supported."
+        )
+    return non_none_args[0], True
 
 
 def attributes_schema_to_json_dict(
@@ -190,6 +315,97 @@ def attributes_schema_from_json_dict(
     return schema
 
 
+def attributes_spec_to_json_dict(
+    attributes_spec: Mapping[str, MetadataAttributeSpec],
+) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    for key, spec in attributes_spec.items():
+        payload: dict[str, Any] = {
+            "type": _metadata_type_to_name(spec.metadata_type),
+            "nullable": spec.nullable,
+            "required": spec.required,
+        }
+        if not spec.required:
+            payload["default"] = spec.default
+        out[key] = payload
+    return out
+
+
+def attributes_spec_from_json_dict(
+    attributes_spec_json: Mapping[str, Any],
+    *,
+    allow_vector_types: bool = True,
+    allow_optional_values: bool = True,
+) -> dict[str, MetadataAttributeSpec]:
+    out: dict[str, MetadataAttributeSpec] = {}
+    for key, payload in attributes_spec_json.items():
+        if not isinstance(key, str) or not key:
+            raise ValueError("Attribute column names must be non-empty strings")
+        if not isinstance(payload, Mapping):
+            raise ValueError(
+                f"Attribute spec for '{key}' must be a mapping with keys: type, nullable, required, default"
+            )
+        type_name = payload.get("type")
+        if not isinstance(type_name, str):
+            raise ValueError(f"Attribute spec for '{key}' must include string 'type'")
+        nullable = payload.get("nullable")
+        if not isinstance(nullable, bool):
+            raise ValueError(
+                f"Attribute spec for '{key}' must include boolean 'nullable'"
+            )
+        required = payload.get("required")
+        if not isinstance(required, bool):
+            raise ValueError(
+                f"Attribute spec for '{key}' must include boolean 'required'"
+            )
+        if not allow_optional_values and not required:
+            raise ValueError(
+                f"Optional attribute values are not supported for '{key}' in this backend"
+            )
+
+        if type_name in _METADATA_NAME_TO_SCALAR_TYPE:
+            metadata_type: MetadataType = _METADATA_NAME_TO_SCALAR_TYPE[type_name]
+        else:
+            parsed = _parse_metadata_type_name(type_name)
+            if parsed is None:
+                raise ValueError(
+                    f"Attribute type for '{key}' must be one of: str, int, float, bool, or float_vector[N]"
+                )
+            if isinstance(parsed, MetadataFloatVectorType) and not allow_vector_types:
+                raise ValueError(
+                    f"Vector attribute types are not supported for '{key}' in this backend"
+                )
+            metadata_type = parsed
+
+        if required:
+            out[key] = MetadataAttributeSpec(
+                metadata_type=metadata_type,
+                nullable=nullable,
+                required=True,
+            )
+            continue
+
+        default_raw = payload.get("default")
+        if default_raw is None and not nullable:
+            raise ValueError(
+                f"Default None for attribute '{key}' requires nullable=true in serialized spec"
+            )
+        default_value = _normalize_metadata_value(
+            key,
+            default_raw,
+            metadata_type,
+            context="default attribute",
+            allow_none=nullable,
+        )
+        out[key] = MetadataAttributeSpec(
+            metadata_type=metadata_type,
+            nullable=nullable,
+            required=False,
+            default=default_value,
+        )
+    return out
+
+
 def _parse_metadata_type_name(type_name: str) -> Optional[MetadataType]:
     match = _FLOAT_VECTOR_TYPE_PATTERN.fullmatch(type_name)
     if match is not None:
@@ -213,26 +429,46 @@ def duckdb_sql_type_for_metadata_type(metadata_type: MetadataType) -> str:
 
 def merge_metadata_values(
     *,
-    attributes_schema: Mapping[str, MetadataType],
+    attributes_spec: Mapping[str, MetadataAttributeSpec],
     sources: Iterable[Optional[Mapping[str, Any]]],
 ) -> dict[str, MetadataValue]:
-    merged: dict[str, MetadataValue] = {key: None for key in attributes_schema}
+    merged: dict[str, MetadataValue | object] = {
+        key: _MISSING for key in attributes_spec
+    }
 
     for source in sources:
         if source is None:
             continue
         for key, value in source.items():
-            if key not in attributes_schema:
+            if key not in attributes_spec:
                 raise ValueError(
                     f"Unknown attribute key '{key}'. Declare it in attributes when creating the store."
                 )
+            spec = attributes_spec[key]
             merged[key] = _normalize_metadata_value(
                 key,
                 value,
-                attributes_schema[key],
+                spec.metadata_type,
+                allow_none=spec.nullable,
             )
 
-    return merged
+    result: dict[str, MetadataValue] = {}
+    for key, spec in attributes_spec.items():
+        value = merged[key]
+        if value is _MISSING:
+            if spec.required:
+                raise ValueError(
+                    f"Missing required attribute '{key}'. Provide a value in document, insert call, or chunk attributes."
+                )
+            value = _copy_metadata_default(spec.default)
+        result[key] = cast(MetadataValue, value)
+    return result
+
+
+def _copy_metadata_default(value: MetadataValue) -> MetadataValue:
+    if isinstance(value, list):
+        return list(value)
+    return value
 
 
 def _normalize_metadata_value(
@@ -241,9 +477,14 @@ def _normalize_metadata_value(
     metadata_type: MetadataType,
     *,
     context: str = "attributes",
+    allow_none: bool = True,
 ) -> MetadataValue:
     if value is None:
-        return None
+        if allow_none:
+            return None
+        raise ValueError(
+            f"Invalid value for {context} '{key}': expected non-null value, got NoneType"
+        )
 
     if isinstance(metadata_type, MetadataFloatVectorType):
         if not isinstance(value, (list, tuple)):
@@ -293,6 +534,7 @@ def coerce_metadata_value_for_output(
         value,
         metadata_type,
         context="retrieved attributes",
+        allow_none=True,
     )
 
 
@@ -507,6 +749,13 @@ class _FilterParser:
         assert isinstance(column, str)
         _validate_allowed_filter_column(column, self._allowed_columns)
 
+        if self._match("IS"):
+            if self._match("NOT"):
+                self._expect("NULL")
+                return FilterComparison(column=column, operator="ne", value=None)
+            self._expect("NULL")
+            return FilterComparison(column=column, operator="eq", value=None)
+
         if self._match("NOT"):
             self._expect("IN")
             operator = "nin"
@@ -530,6 +779,8 @@ class _FilterParser:
         operator = op_map[token.value]
         value = self._parse_literal_value()
         _validate_null_comparison_operator(operator=operator, value=value)
+        if value is None and operator in {"eq", "ne"}:
+            raise ValueError("Use IS NULL or IS NOT NULL for NULL comparisons")
         return FilterComparison(column=column, operator=operator, value=value)
 
     def _parse_literal_list(self) -> list[MetadataScalar]:
@@ -668,7 +919,7 @@ def _tokenize_filter(text: str) -> list[_Token]:
         if ident_match is not None:
             raw = ident_match.group(0)
             keyword = raw.upper()
-            if keyword in {"AND", "OR", "IN", "NOT", "TRUE", "FALSE", "NULL"}:
+            if keyword in {"AND", "OR", "IN", "IS", "NOT", "TRUE", "FALSE", "NULL"}:
                 tokens.append(_Token(kind=keyword, raw=raw))
             else:
                 tokens.append(_Token(kind="IDENT", raw=raw, value=raw))

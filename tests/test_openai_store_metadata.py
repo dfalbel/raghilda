@@ -70,12 +70,29 @@ def test_openai_store_create_accepts_class_attributes_schema(monkeypatch):
     schema_json = client.vector_stores.create_calls[0]["metadata"][
         "raghilda_metadata_schema_json"
     ]
-    assert json.loads(schema_json) == {"tenant": "str", "priority": "int"}
+    assert json.loads(schema_json) == {
+        "tenant": {"type": "str", "nullable": False, "required": True},
+        "priority": {"type": "int", "nullable": False, "required": True},
+    }
 
 
 def test_openai_store_create_rejects_vector_attributes_schema():
     with pytest.raises(ValueError, match="Vector attribute types are not supported"):
         OpenAIStore.create(attributes={"embedding25": Annotated[list[float], 25]})
+
+
+def test_openai_store_create_rejects_optional_attributes_schema():
+    with pytest.raises(
+        ValueError, match="Optional attribute values are not supported for 'topic'"
+    ):
+        OpenAIStore.create(attributes={"topic": str | None})
+
+
+def test_openai_store_create_rejects_defaulted_attributes_schema():
+    with pytest.raises(
+        ValueError, match="Optional attribute values are not supported for 'priority'"
+    ):
+        OpenAIStore.create(attributes={"tenant": str, "priority": (int, 0)})
 
 
 def test_openai_store_insert_uses_document_attributes():
@@ -89,14 +106,14 @@ def test_openai_store_insert_uses_document_attributes():
     doc = MarkdownDocument(
         origin="openai.md",
         content="hello world",
-        attributes={"tenant": "docs"},
+        attributes={"tenant": "docs", "priority": 1},
     )
     store.insert(doc)
 
     assert len(client.vector_stores.files.upload_calls) == 1
     call = client.vector_stores.files.upload_calls[0]
     assert call["vector_store_id"] == "vs_123"
-    assert call["attributes"] == {"tenant": "docs"}
+    assert call["attributes"] == {"tenant": "docs", "priority": 1.0}
 
 
 def test_openai_store_retrieve_supports_attributes_filter():

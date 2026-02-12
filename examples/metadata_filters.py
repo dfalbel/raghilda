@@ -8,9 +8,10 @@ from raghilda.chunker import MarkdownChunker
 
 
 class AttributesSpec:
-    tenant: str
-    topic: str
-    priority: int
+    tenant: str                 # required
+    priority: int = 0           # optional, default 0
+    is_public: bool = False     # optional, default False
+    topic: str | None = None    # optional, default None
 
 
 # All supported schema declaration styles:
@@ -22,10 +23,18 @@ SCHEMA_DICT = {
     "priority": int,
 }
 #
-# 2) Class annotations
+# 2) Dict with explicit defaults (optional values)
+SCHEMA_DICT_WITH_DEFAULTS = {
+    "tenant": str,
+    "priority": (int, 0),
+    "is_public": (bool, False),
+    "topic": (str | None, None),
+}
+#
+# 3) Class annotations
 SCHEMA_CLASS = AttributesSpec
 #
-# 3) DuckDB-only fixed-size vectors
+# 4) DuckDB-only fixed-size vectors
 SCHEMA_DUCKDB_WITH_VECTOR = {
     "tenant": str,
     "topic": str,

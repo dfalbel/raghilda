@@ -19,15 +19,16 @@ from tqdm import tqdm
 from ._deoverlap import deoverlap_chunks
 from ._metadata import (
     MetadataFilter,
+    MetadataAttributeSpec,
     AttributesSchemaSpec,
     MetadataType,
     MetadataValue,
-    attributes_schema_from_json_dict,
-    attributes_schema_to_json_dict,
+    attributes_spec_from_json_dict,
+    attributes_spec_to_json_dict,
     coerce_metadata_value_for_output,
     compile_filter_to_sql,
     duckdb_sql_type_for_metadata_type,
-    normalize_attributes_schema,
+    normalize_attributes_spec,
     metadata_type_supports_filters,
     merge_metadata_values,
 )
@@ -222,6 +223,7 @@ class DuckDBStoreMetadata:
     name: str
     title: str
     embed: Optional[EmbeddingProvider]
+    attributes_spec: dict[str, MetadataAttributeSpec]
     attributes_schema: dict[str, MetadataType]
 
 
@@ -306,15 +308,19 @@ class DuckDBStore(BaseStore):
 
         if metadata_schema_json is None:
             raise ValueError("Missing metadata_schema_json in metadata table")
-        attributes_schema = attributes_schema_from_json_dict(
+        attributes_spec = attributes_spec_from_json_dict(
             json.loads(metadata_schema_json),
             allow_vector_types=True,
         )
+        attributes_schema = {
+            key: spec.metadata_type for key, spec in attributes_spec.items()
+        }
 
         metadata = DuckDBStoreMetadata(
             name=name,
             title=title,
             embed=embed,
+            attributes_spec=attributes_spec,
             attributes_schema=attributes_schema,
         )
 
@@ -362,11 +368,15 @@ class DuckDBStore(BaseStore):
         if title is None:
             title = "Raghilda DuckDB Store"
 
-        attributes_schema = normalize_attributes_schema(
+        attributes_spec = normalize_attributes_spec(
             attributes=attributes,
             reserved_columns=_RESERVED_METADATA_COLUMNS,
             allow_vector_types=True,
+            allow_optional_values=True,
         )
+        attributes_schema = {
+            key: spec.metadata_type for key, spec in attributes_spec.items()
+        }
 
         if embed is None:
             embedding_column = None
@@ -379,9 +389,7 @@ class DuckDBStore(BaseStore):
         if embed is not None:
             embed_config_json = json.dumps(embed.get_config())
 
-        metadata_schema_json = json.dumps(
-            attributes_schema_to_json_dict(attributes_schema)
-        )
+        metadata_schema_json = json.dumps(attributes_spec_to_json_dict(attributes_spec))
         extra_attribute_column_defs = _duckdb_attribute_column_defs(
             attributes_schema=attributes_schema,
         )
@@ -456,6 +464,7 @@ class DuckDBStore(BaseStore):
                 name=name,
                 title=title,
                 embed=embed,
+                attributes_spec=attributes_spec,
                 attributes_schema=attributes_schema,
             ),
         )
@@ -606,7 +615,7 @@ class DuckDBStore(BaseStore):
             chunk_attributes = getattr(chunk, "attributes", None)
             resolved_chunk_attributes.append(
                 merge_metadata_values(
-                    attributes_schema=self.metadata.attributes_schema,
+                    attributes_spec=self.metadata.attributes_spec,
                     sources=[chunked_doc.attributes, attributes, chunk_attributes],
                 )
             )

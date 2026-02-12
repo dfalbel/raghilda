@@ -8,13 +8,14 @@ from dataclasses import dataclass
 from ._metadata import (
     MetadataFilter,
     AttributesSchemaSpec,
+    MetadataAttributeSpec,
     MetadataType,
     MetadataValue,
-    attributes_schema_from_json_dict,
-    attributes_schema_to_json_dict,
+    attributes_spec_from_json_dict,
+    attributes_spec_to_json_dict,
     compile_filter_to_openai_filters,
     merge_metadata_values,
-    normalize_attributes_schema,
+    normalize_attributes_spec,
 )
 
 _METADATA_SCHEMA_KEY = "raghilda_metadata_schema_json"
@@ -141,16 +142,20 @@ class OpenAIStore(BaseStore):
         OpenAIStore
             A newly created store instance.
         """
-        attributes_schema = normalize_attributes_schema(
+        attributes_spec = normalize_attributes_spec(
             attributes=attributes,
             reserved_columns=set(),
             allow_vector_types=False,
+            allow_optional_values=False,
         )
+        attributes_schema = {
+            key: spec.metadata_type for key, spec in attributes_spec.items()
+        }
 
         client = openai.Client(api_key=api_key, base_url=base_url)
         api_vector_store_metadata = dict(metadata or {})
         api_vector_store_metadata[_METADATA_SCHEMA_KEY] = json.dumps(
-            attributes_schema_to_json_dict(attributes_schema)
+            attributes_spec_to_json_dict(attributes_spec)
         )
         kwargs["metadata"] = api_vector_store_metadata
 
@@ -158,6 +163,7 @@ class OpenAIStore(BaseStore):
         return OpenAIStore(
             client,
             vector_store.id,
+            attributes_spec=attributes_spec,
             attributes=attributes_schema,
         )
 
@@ -192,21 +198,27 @@ class OpenAIStore(BaseStore):
         vector_store = client.vector_stores.retrieve(vector_store_id=store_id)
         store_metadata = getattr(vector_store, "metadata", None) or {}
 
-        resolved_attributes = normalize_attributes_schema(
+        resolved_attributes_spec = normalize_attributes_spec(
             attributes=attributes,
             reserved_columns=set(),
             allow_vector_types=False,
+            allow_optional_values=False,
         )
-        if not resolved_attributes and store_metadata.get(_METADATA_SCHEMA_KEY):
-            resolved_attributes = attributes_schema_from_json_dict(
+        if not resolved_attributes_spec and store_metadata.get(_METADATA_SCHEMA_KEY):
+            resolved_attributes_spec = attributes_spec_from_json_dict(
                 json.loads(store_metadata[_METADATA_SCHEMA_KEY]),
                 allow_vector_types=False,
+                allow_optional_values=False,
             )
+        resolved_attributes_schema = {
+            key: spec.metadata_type for key, spec in resolved_attributes_spec.items()
+        }
 
         return OpenAIStore(
             client,
             store_id,
-            attributes=resolved_attributes,
+            attributes_spec=resolved_attributes_spec,
+            attributes=resolved_attributes_schema,
         )
 
     def __init__(
@@ -214,11 +226,32 @@ class OpenAIStore(BaseStore):
         client: Any,
         store_id: str,
         *,
+        attributes_spec: Optional[Mapping[str, MetadataAttributeSpec]] = None,
         attributes: Optional[Mapping[str, MetadataType]] = None,
     ):
         self.client = client
         self.store_id = store_id
-        self.attributes_schema = dict(attributes or {})
+        if attributes_spec is not None:
+            resolved_spec = dict(attributes_spec)
+        elif attributes is not None:
+            resolved_spec = normalize_attributes_spec(
+                attributes=attributes,
+                reserved_columns=set(),
+                allow_vector_types=False,
+                allow_optional_values=False,
+            )
+        else:
+            resolved_spec = {}
+
+        if attributes is not None:
+            resolved_schema = dict(attributes)
+        else:
+            resolved_schema = {
+                key: spec.metadata_type for key, spec in resolved_spec.items()
+            }
+
+        self.attributes_spec = resolved_spec
+        self.attributes_schema = resolved_schema
 
     def insert(
         self,
@@ -239,7 +272,7 @@ class OpenAIStore(BaseStore):
                     )
 
         resolved_attributes = merge_metadata_values(
-            attributes_schema=self.attributes_schema,
+            attributes_spec=self.attributes_spec,
             sources=[document.attributes, attributes],
         )
         file_attributes = _normalize_openai_attributes(resolved_attributes)

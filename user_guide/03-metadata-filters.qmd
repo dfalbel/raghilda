@@ -11,7 +11,8 @@ You can declare attribute schema types in three ways:
 
 1. A dict with Python scalar types
 2. A class with type annotations
-3. `Annotated[list[float], N]` for fixed-size vectors (DuckDB only)
+3. A dict with `(type, default)` tuples for optional/defaulted attributes
+4. `Annotated[list[float], N]` for fixed-size vectors (DuckDB only)
 
 ```{python}
 #| eval: false
@@ -19,10 +20,10 @@ from typing import Annotated
 from raghilda.store import DuckDBStore
 
 class AttributesSpec:
-    tenant: str
-    topic: str
-    priority: int
-    is_public: bool
+    tenant: str                 # required
+    priority: int = 0           # optional, default 0
+    is_public: bool = False     # optional, default False
+    topic: str | None = None    # optional, default None
 
 # 1) Dict with Python scalar types
 store = DuckDBStore.create(
@@ -43,7 +44,19 @@ store = DuckDBStore.create(
     attributes=AttributesSpec,
 )
 
-# 3) DuckDB fixed-size vector attributes
+# 3) Dict with explicit defaults
+store = DuckDBStore.create(
+    location="docs.duckdb",
+    embed=None,
+    attributes={
+        "tenant": str,                # required
+        "priority": (int, 0),         # optional with default
+        "is_public": (bool, False),   # optional with default
+        "topic": (str | None, None),  # optional nullable
+    },
+)
+
+# 4) DuckDB fixed-size vector attributes
 store = DuckDBStore.create(
     location="docs.duckdb",
     embed=None,
@@ -55,6 +68,7 @@ store = DuckDBStore.create(
 ```
 
 `ChromaDBStore` and `OpenAIStore` support scalar attribute types and class annotations, but reject vector attribute types.
+They also require all declared attributes to be required (no optional/defaulted attributes).
 
 ## 2. Add Attributes During Insertion
 
@@ -83,7 +97,9 @@ doc.chunks = [
 store.insert(doc)
 ```
 
-Chunk attributes override document attributes for that chunk only. Unspecified attribute values are `None`.
+Chunk attributes override document attributes for that chunk only.
+Required attributes must always be provided (from document-level, insert-level, or chunk-level values).
+Optional attributes use their declared defaults.
 
 ## 3. Filter Retrieval With `attributes_filter`
 
@@ -120,7 +136,7 @@ Supported operators:
 - `=`, `!=`, `>`, `>=`, `<`, `<=`
 - `IN (...)`, `NOT IN (...)`
 - `AND`, `OR`, parentheses
-- `NULL` comparisons through `= NULL` / `!= NULL` (DuckDB only)
+- `NULL` comparisons through `IS NULL` / `IS NOT NULL` (DuckDB only)
 
 ## Notes by Backend
 
@@ -128,3 +144,4 @@ Supported operators:
 - `ChromaDBStore`: the same filter string compiles to Chroma `where` filters.
 - `OpenAIStore`: attributes are stored as file attributes; store-level metadata stays on the vector store resource.
 - `ChromaDBStore` and `OpenAIStore` do not support `NULL` in `attributes_filter`.
+- `ChromaDBStore` and `OpenAIStore` reject optional/defaulted attribute declarations.

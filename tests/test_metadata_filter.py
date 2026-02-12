@@ -15,9 +15,25 @@ def test_compile_filter_to_sql_with_and_or():
     assert sql == '("tenant" = \'docs\' AND ("priority" >= 2 OR "is_public" = TRUE))'
 
 
-def test_compile_filter_to_sql_null_via_equality():
+def test_compile_filter_to_sql_null_via_is_null():
     sql = compile_filter_to_sql(
-        "tenant = NULL",
+        "tenant IS NULL",
+        allowed_columns={"tenant"},
+    )
+    assert sql == '"tenant" IS NULL'
+
+
+def test_compile_filter_to_sql_null_via_is_not_null():
+    sql = compile_filter_to_sql(
+        "tenant IS NOT NULL",
+        allowed_columns={"tenant"},
+    )
+    assert sql == '"tenant" IS NOT NULL'
+
+
+def test_compile_filter_to_sql_mapping_ast_null_uses_is_null():
+    sql = compile_filter_to_sql(
+        {"type": "eq", "key": "tenant", "value": None},
         allowed_columns={"tenant"},
     )
     assert sql == '"tenant" IS NULL'
@@ -36,6 +52,14 @@ def test_compile_filter_to_sql_rejects_null_with_inequality_operator_mapping_ast
         compile_filter_to_sql(
             {"type": "gt", "key": "priority", "value": None},
             allowed_columns={"priority"},
+        )
+
+
+def test_compile_filter_to_sql_rejects_equals_null_syntax():
+    with pytest.raises(ValueError, match="Use IS NULL or IS NOT NULL"):
+        compile_filter_to_sql(
+            "tenant = NULL",
+            allowed_columns={"tenant"},
         )
 
 
@@ -69,7 +93,7 @@ def test_compile_filter_to_openai_filters():
 def test_compile_filter_to_chroma_where_rejects_null():
     with pytest.raises(ValueError, match="NULL is not supported in Chroma"):
         compile_filter_to_chroma_where(
-            "tenant = NULL",
+            "tenant IS NULL",
             allowed_columns={"tenant"},
         )
 
@@ -77,7 +101,7 @@ def test_compile_filter_to_chroma_where_rejects_null():
 def test_compile_filter_to_openai_filters_rejects_null():
     with pytest.raises(ValueError, match="NULL is not supported in OpenAI"):
         compile_filter_to_openai_filters(
-            "tenant = NULL",
+            "tenant IS NULL",
             allowed_columns={"tenant"},
         )
 

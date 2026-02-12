@@ -33,13 +33,14 @@ from ._embedding import (
 from ._metadata import (
     MetadataFilter,
     AttributesSchemaSpec,
+    MetadataAttributeSpec,
     MetadataType,
     MetadataValue,
-    attributes_schema_from_json_dict,
-    attributes_schema_to_json_dict,
+    attributes_spec_from_json_dict,
+    attributes_spec_to_json_dict,
     compile_filter_to_chroma_where,
     merge_metadata_values,
-    normalize_attributes_schema,
+    normalize_attributes_spec,
 )
 from tqdm import tqdm
 
@@ -286,6 +287,7 @@ class RetrievedChromaDBMarkdownChunk(ChromaDBMarkdownChunk, RetrievedChunk):
 class ChromaDBStoreMetadata:
     name: str
     title: str
+    attributes_spec: dict[str, MetadataAttributeSpec]
     attributes_schema: dict[str, MetadataType]
 
 
@@ -358,11 +360,15 @@ class ChromaDBStore(BaseStore):
         if title is None:
             title = "Raghilda ChromaDB Store"
 
-        attributes_schema = normalize_attributes_schema(
+        attributes_spec = normalize_attributes_spec(
             attributes=attributes,
             reserved_columns=_RESERVED_METADATA_COLUMNS,
             allow_vector_types=False,
+            allow_optional_values=False,
         )
+        attributes_schema = {
+            key: spec.metadata_type for key, spec in attributes_spec.items()
+        }
 
         if client is None:
             client = _get_client(location)
@@ -376,7 +382,7 @@ class ChromaDBStore(BaseStore):
         store_metadata = {
             _METADATA_TITLE_KEY: title,
             _METADATA_SCHEMA_KEY: json.dumps(
-                attributes_schema_to_json_dict(attributes_schema)
+                attributes_spec_to_json_dict(attributes_spec)
             ),
         }
 
@@ -395,6 +401,7 @@ class ChromaDBStore(BaseStore):
             metadata=ChromaDBStoreMetadata(
                 name=name,
                 title=title,
+                attributes_spec=attributes_spec,
                 attributes_schema=attributes_schema,
             ),
         )
@@ -440,12 +447,16 @@ class ChromaDBStore(BaseStore):
         )
         metadata = collection.metadata or {}
         title = metadata.get(_METADATA_TITLE_KEY, "Raghilda ChromaDB Store")
-        attributes_schema: dict[str, MetadataType] = {}
+        attributes_spec: dict[str, MetadataAttributeSpec] = {}
         if metadata.get(_METADATA_SCHEMA_KEY) is not None:
-            attributes_schema = attributes_schema_from_json_dict(
+            attributes_spec = attributes_spec_from_json_dict(
                 json.loads(metadata[_METADATA_SCHEMA_KEY]),
                 allow_vector_types=False,
+                allow_optional_values=False,
             )
+        attributes_schema = {
+            key: spec.metadata_type for key, spec in attributes_spec.items()
+        }
 
         return ChromaDBStore(
             client=client,
@@ -453,6 +464,7 @@ class ChromaDBStore(BaseStore):
             metadata=ChromaDBStoreMetadata(
                 name=name,
                 title=title,
+                attributes_spec=attributes_spec,
                 attributes_schema=attributes_schema,
             ),
         )
@@ -479,7 +491,7 @@ class ChromaDBStore(BaseStore):
         metadatas = []
         for idx, chunk in enumerate(document.chunks):
             resolved_attributes = merge_metadata_values(
-                attributes_schema=self.metadata.attributes_schema,
+                attributes_spec=self.metadata.attributes_spec,
                 sources=[document.attributes, attributes, chunk.attributes],
             )
             ids.append(f"{document.id}:{idx}")

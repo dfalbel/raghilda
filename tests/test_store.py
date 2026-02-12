@@ -251,7 +251,7 @@ class TestDuckDBStore:
             attributes={
                 "tenant": str,
                 "priority": int,
-                "is_public": bool,
+                "is_public": bool | None,
             },
         )
 
@@ -303,7 +303,7 @@ class TestDuckDBStore:
             "beta",
             top_k=10,
             deoverlap=False,
-            attributes_filter="tenant = 'docs' AND is_public = NULL AND priority = 1",
+            attributes_filter="tenant = 'docs' AND is_public IS NULL AND priority = 1",
         )
         assert len(public_results) == 1
         assert public_results[0].text.strip() == "beta"
@@ -327,6 +327,69 @@ class TestDuckDBStore:
         )
         assert len(dict_results) == 1
         assert dict_results[0].text.strip() == "alpha"
+
+    def test_insert_applies_inline_attribute_defaults(self):
+        store = DuckDBStore.create(
+            location=":memory:",
+            embed=None,
+            overwrite=True,
+            attributes={
+                "tenant": str,
+                "priority": (int, 0),
+                "is_public": (bool, False),
+                "topic": (str | None, None),
+            },
+        )
+
+        doc = MarkdownDocument(
+            origin="defaults-test",
+            content="alpha beta",
+            attributes={"tenant": "docs"},
+        )
+        doc.chunks = [
+            MarkdownChunk(
+                start_index=0,
+                end_index=5,
+                text="alpha",
+                token_count=5,
+            )
+        ]
+
+        store.insert(doc)
+        store.build_index(IndexType.BM25)
+
+        results = store.retrieve("alpha", top_k=5, deoverlap=False)
+        assert len(results) == 1
+        assert results[0].attributes == {
+            "tenant": "docs",
+            "priority": 0,
+            "is_public": False,
+            "topic": None,
+        }
+
+    def test_insert_missing_required_attribute_fails(self):
+        store = DuckDBStore.create(
+            location=":memory:",
+            embed=None,
+            overwrite=True,
+            attributes={"tenant": str, "priority": (int, 0)},
+        )
+
+        doc = MarkdownDocument(
+            origin="required-fail",
+            content="hello",
+        )
+        doc.chunks = [
+            MarkdownChunk(
+                start_index=0,
+                end_index=5,
+                text="hello",
+                token_count=5,
+            )
+        ]
+
+        with pytest.raises(ValueError, match="Missing required attribute 'tenant'"):
+            store.insert(doc)
 
     def test_insert_attributes_without_declared_schema_fails(self):
         store = DuckDBStore.create(
