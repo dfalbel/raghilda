@@ -19,6 +19,7 @@ from typing import (
 from concurrent.futures import ThreadPoolExecutor
 
 from ._store import BaseStore
+from ._utils import lazy_map
 from .chunk import MarkdownChunk, RetrievedChunk, Metric
 from .chunker import MarkdownChunker
 from .document import Document, MarkdownDocument
@@ -608,13 +609,10 @@ class ChromaDBStore(BaseStore):
                 raise RuntimeError(f"Failed to ingest '{item}': {e}") from e
 
         with ThreadPoolExecutor(max_workers=num_workers) as pool:
-            list(
-                tqdm(
-                    pool.map(do_ingest_work, items),
-                    total=total,
-                    disable=not progress,
-                )
-            )
+            for future in tqdm(
+                lazy_map(pool, do_ingest_work, items), total=total, disable=not progress
+            ):
+                future.result()
 
     def retrieve(
         self,
