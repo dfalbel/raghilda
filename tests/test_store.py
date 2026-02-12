@@ -1,7 +1,6 @@
 import os
 import socket
 from typing import Annotated
-import duckdb
 import pytest
 from raghilda.store import DuckDBStore, OpenAIStore
 from raghilda.scrape import find_links
@@ -394,32 +393,6 @@ class TestDuckDBStore:
             "tenant": str,
             "priority": int,
         }
-
-    def test_connect_legacy_metadata_table_without_schema_column(self, tmp_path):
-        db_path = tmp_path / "legacy-metadata.db"
-        con = duckdb.connect(str(db_path))
-        con.execute(
-            """
-            CREATE TABLE metadata (
-                name VARCHAR,
-                title VARCHAR,
-                embed_config VARCHAR
-            )
-            """
-        )
-        con.execute(
-            """
-            INSERT INTO metadata (name, title, embed_config)
-            VALUES ('legacy_store', 'Legacy Store', NULL)
-            """
-        )
-        con.close()
-
-        store = DuckDBStore.connect(str(db_path))
-        assert store.metadata.name == "legacy_store"
-        assert store.metadata.title == "Legacy Store"
-        assert store.metadata.attributes_schema == {}
-        assert store.metadata.embed is None
 
 
 class TestOpenAIStore:

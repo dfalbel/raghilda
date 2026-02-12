@@ -286,24 +286,9 @@ class DuckDBStore(BaseStore):
         con = duckdb.connect(database=location, read_only=read_only)
         _check_is_raghilda_con(con)
 
-        metadata_columns = {
-            row[1] for row in con.execute("PRAGMA table_info('metadata')").fetchall()
-        }
-        has_schema_column = "metadata_schema_json" in metadata_columns
-
-        if has_schema_column:
-            row = con.execute(
-                "SELECT name, title, embed_config, metadata_schema_json FROM metadata"
-            ).fetchone()
-        else:
-            legacy_row = con.execute(
-                "SELECT name, title, embed_config FROM metadata"
-            ).fetchone()
-            row = (
-                None
-                if legacy_row is None
-                else (legacy_row[0], legacy_row[1], legacy_row[2], None)
-            )
+        row = con.execute(
+            "SELECT name, title, embed_config, metadata_schema_json FROM metadata"
+        ).fetchone()
 
         if row is None:
             raise ValueError("No metadata found in the database")
@@ -319,12 +304,12 @@ class DuckDBStore(BaseStore):
             except ValueError as e:
                 logger.warning(f"Could not restore embedding provider: {e}")
 
-        attributes_schema: dict[str, MetadataType] = {}
-        if metadata_schema_json is not None:
-            attributes_schema = attributes_schema_from_json_dict(
-                json.loads(metadata_schema_json),
-                allow_vector_types=True,
-            )
+        if metadata_schema_json is None:
+            raise ValueError("Missing metadata_schema_json in metadata table")
+        attributes_schema = attributes_schema_from_json_dict(
+            json.loads(metadata_schema_json),
+            allow_vector_types=True,
+        )
 
         metadata = DuckDBStoreMetadata(
             name=name,
