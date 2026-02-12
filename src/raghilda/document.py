@@ -29,14 +29,23 @@ class Document:
     chunks
         List of chunks after the document has been processed by a chunker.
         None if the document hasn't been chunked yet.
-    metadata
-        Optional user-defined metadata applied at document insertion time.
+    attributes
+        Optional user-defined attributes applied at document insertion time.
     """
 
     content: str
     id: str = field(default_factory=_generate_doc_id)
     chunks: Optional[list[Chunk]] = None
-    metadata: Optional[dict[str, Any]] = None
+    attributes: Optional[dict[str, Any]] = None
+
+    @property
+    def metadata(self) -> Optional[dict[str, Any]]:
+        """Backward-compatible alias for attributes."""
+        return self.attributes
+
+    @metadata.setter
+    def metadata(self, value: Optional[dict[str, Any]]) -> None:
+        self.attributes = value
 
     @classmethod
     def from_any(cls, doc: Union[DocumentLike, IntoDocument]) -> "Document":
@@ -69,11 +78,14 @@ class Document:
             if doc.chunks is not None:
                 chunks = [Chunk.from_any(c) for c in doc.chunks]
             doc_id = getattr(doc, "id", None) or _generate_doc_id()
+            raw_attributes = getattr(doc, "attributes", None)
+            if raw_attributes is None:
+                raw_attributes = getattr(doc, "metadata", None)
             return cls(
                 content=doc.content,
                 id=doc_id,
                 chunks=chunks,
-                metadata=dict(getattr(doc, "metadata", {}) or {}),
+                attributes=dict(raw_attributes or {}),
             )
         raise TypeError(f"Cannot convert {type(doc).__name__} to Document")
 
@@ -133,6 +145,6 @@ class MarkdownDocument(Document):
             content=base.content,
             id=base.id,
             chunks=base.chunks,
-            metadata=base.metadata,
+            attributes=base.attributes,
             origin=getattr(doc, "origin", origin),
         )

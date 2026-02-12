@@ -30,6 +30,15 @@ MetadataType: TypeAlias = MetadataScalarType | MetadataFloatVectorType
 MetadataSchemaSpec: TypeAlias = Mapping[str, Any] | type[Any]
 MetadataFilter: TypeAlias = str | Mapping[str, Any]
 
+# Preferred attribute terminology aliases.
+AttributeScalar = MetadataScalar
+AttributeFilterValue = MetadataFilterValue
+AttributeScalarType = MetadataScalarType
+AttributeValue = MetadataValue
+AttributeType = MetadataType
+AttributeSchemaSpec = MetadataSchemaSpec
+AttributeFilter = MetadataFilter
+
 _METADATA_SCALAR_TYPE_TO_NAME: dict[MetadataScalarType, str] = {
     str: "str",
     int: "int",
@@ -42,21 +51,21 @@ _METADATA_NAME_TO_SCALAR_TYPE: dict[str, MetadataScalarType] = {
 _FLOAT_VECTOR_TYPE_PATTERN = re.compile(r"^float_vector\[(\d+)\]$")
 
 
-def normalize_metadata_schema(
-    metadata: Optional[MetadataSchemaSpec],
+def normalize_attributes_schema(
+    attributes: Optional[MetadataSchemaSpec],
     *,
     reserved_columns: Iterable[str],
     allow_vector_types: bool = False,
 ) -> dict[str, MetadataType]:
-    schema_items = dict(_metadata_schema_items(metadata))
+    schema_items = dict(_attributes_schema_items(attributes))
     reserved = set(reserved_columns)
     schema: dict[str, MetadataType] = {}
 
     for key, annotation in schema_items.items():
         if not isinstance(key, str) or not key:
-            raise ValueError("Metadata column names must be non-empty strings")
+            raise ValueError("Attribute column names must be non-empty strings")
         if key in reserved:
-            raise ValueError(f"Metadata column '{key}' is reserved")
+            raise ValueError(f"Attribute column '{key}' is reserved")
 
         schema[key] = _parse_metadata_type(
             key=key,
@@ -67,19 +76,21 @@ def normalize_metadata_schema(
     return schema
 
 
-def _metadata_schema_items(metadata: Optional[MetadataSchemaSpec]) -> Mapping[str, Any]:
-    if metadata is None:
+def _attributes_schema_items(
+    attributes: Optional[MetadataSchemaSpec],
+) -> Mapping[str, Any]:
+    if attributes is None:
         return {}
-    if isinstance(metadata, Mapping):
-        return metadata
-    if isinstance(metadata, type):
+    if isinstance(attributes, Mapping):
+        return attributes
+    if isinstance(attributes, type):
         try:
-            return get_type_hints(metadata, include_extras=True)
+            return get_type_hints(attributes, include_extras=True)
         except Exception as e:
             raise ValueError(
-                f"Failed to parse metadata annotations from '{metadata.__name__}': {e}"
+                f"Failed to parse attribute annotations from '{attributes.__name__}': {e}"
             )
-    raise ValueError("metadata must be a mapping or a class with type annotations")
+    raise ValueError("attributes must be a mapping or a class with type annotations")
 
 
 def _parse_metadata_type(
@@ -94,7 +105,7 @@ def _parse_metadata_type(
     if isinstance(annotation, MetadataFloatVectorType):
         if not allow_vector_types:
             raise ValueError(
-                f"Vector metadata types are not supported for '{key}' in this backend"
+                f"Vector attribute types are not supported for '{key}' in this backend"
             )
         return annotation
 
@@ -110,16 +121,16 @@ def _parse_metadata_type(
         vector_type = _parse_vector_annotation(base, extras)
         if vector_type is None:
             raise ValueError(
-                f"Unsupported metadata annotation for '{key}': {annotation}"
+                f"Unsupported attribute annotation for '{key}': {annotation}"
             )
         if not allow_vector_types:
             raise ValueError(
-                f"Vector metadata types are not supported for '{key}' in this backend"
+                f"Vector attribute types are not supported for '{key}' in this backend"
             )
         return vector_type
 
     raise ValueError(
-        f"Metadata type for '{key}' must be one of: str, int, float, bool, or Annotated[list[float], N]"
+        f"Attribute type for '{key}' must be one of: str, int, float, bool, or Annotated[list[float], N]"
     )
 
 
@@ -136,17 +147,17 @@ def _parse_vector_annotation(
     ]
     if len(dimensions) != 1:
         raise ValueError(
-            "Vector metadata annotations must include exactly one positive integer dimension"
+            "Vector attribute annotations must include exactly one positive integer dimension"
         )
 
     return MetadataFloatVectorType(dimension=dimensions[0])
 
 
-def metadata_schema_to_json_dict(
-    metadata_schema: Mapping[str, MetadataType],
+def attributes_schema_to_json_dict(
+    attributes_schema: Mapping[str, MetadataType],
 ) -> dict[str, str]:
     return {
-        key: _metadata_type_to_name(value) for key, value in metadata_schema.items()
+        key: _metadata_type_to_name(value) for key, value in attributes_schema.items()
     }
 
 
@@ -156,18 +167,18 @@ def _metadata_type_to_name(metadata_type: MetadataType) -> str:
     return _METADATA_SCALAR_TYPE_TO_NAME[metadata_type]
 
 
-def metadata_schema_from_json_dict(
-    metadata_schema_json: Mapping[str, Any],
+def attributes_schema_from_json_dict(
+    attributes_schema_json: Mapping[str, Any],
     *,
     allow_vector_types: bool = True,
 ) -> dict[str, MetadataType]:
     schema: dict[str, MetadataType] = {}
-    for key, value in metadata_schema_json.items():
+    for key, value in attributes_schema_json.items():
         if not isinstance(key, str) or not key:
-            raise ValueError("Metadata column names must be non-empty strings")
+            raise ValueError("Attribute column names must be non-empty strings")
         if not isinstance(value, str):
             raise ValueError(
-                f"Metadata type for '{key}' must be one of: str, int, float, bool, or float_vector[N]"
+                f"Attribute type for '{key}' must be one of: str, int, float, bool, or float_vector[N]"
             )
 
         if value in _METADATA_NAME_TO_SCALAR_TYPE:
@@ -177,11 +188,11 @@ def metadata_schema_from_json_dict(
         vector_type = _parse_metadata_type_name(value)
         if vector_type is None:
             raise ValueError(
-                f"Metadata type for '{key}' must be one of: str, int, float, bool, or float_vector[N]"
+                f"Attribute type for '{key}' must be one of: str, int, float, bool, or float_vector[N]"
             )
         if isinstance(vector_type, MetadataFloatVectorType) and not allow_vector_types:
             raise ValueError(
-                f"Vector metadata types are not supported for '{key}' in this backend"
+                f"Vector attribute types are not supported for '{key}' in this backend"
             )
         schema[key] = vector_type
 
@@ -206,28 +217,36 @@ def duckdb_sql_type_for_metadata_type(metadata_type: MetadataType) -> str:
         return "BOOLEAN"
     if isinstance(metadata_type, MetadataFloatVectorType):
         return f"FLOAT[{metadata_type.dimension}]"
-    raise ValueError(f"Unsupported metadata type: {metadata_type}")
+    raise ValueError(f"Unsupported attribute type: {metadata_type}")
 
 
 def merge_metadata_values(
     *,
-    metadata_schema: Mapping[str, MetadataType],
+    attributes_schema: Optional[Mapping[str, MetadataType]] = None,
+    metadata_schema: Optional[Mapping[str, MetadataType]] = None,
     sources: Iterable[Optional[Mapping[str, Any]]],
 ) -> dict[str, MetadataValue]:
-    merged: dict[str, MetadataValue] = {key: None for key in metadata_schema}
+    if attributes_schema is None:
+        attributes_schema = metadata_schema
+    elif metadata_schema is not None:
+        raise ValueError("Use either attributes_schema or metadata_schema, not both.")
+    if attributes_schema is None:
+        raise ValueError("attributes_schema is required.")
+
+    merged: dict[str, MetadataValue] = {key: None for key in attributes_schema}
 
     for source in sources:
         if source is None:
             continue
         for key, value in source.items():
-            if key not in metadata_schema:
+            if key not in attributes_schema:
                 raise ValueError(
-                    f"Unknown metadata key '{key}'. Declare it in metadata when creating the store."
+                    f"Unknown attribute key '{key}'. Declare it in attributes when creating the store."
                 )
             merged[key] = _normalize_metadata_value(
                 key,
                 value,
-                metadata_schema[key],
+                attributes_schema[key],
             )
 
     return merged
@@ -238,7 +257,7 @@ def _normalize_metadata_value(
     value: Any,
     metadata_type: MetadataType,
     *,
-    context: str = "metadata",
+    context: str = "attributes",
 ) -> MetadataValue:
     if value is None:
         return None
@@ -290,7 +309,7 @@ def coerce_metadata_value_for_output(
         key,
         value,
         metadata_type,
-        context="retrieved metadata",
+        context="retrieved attributes",
     )
 
 
@@ -315,60 +334,60 @@ FilterNode = FilterComparison | FilterLogical
 
 
 def compile_filter_to_sql(
-    metadata_filter: Optional[MetadataFilter],
+    attributes_filter: Optional[MetadataFilter],
     *,
     allowed_columns: Optional[Iterable[str]] = None,
 ) -> Optional[str]:
-    node = _parse_filter_or_none(metadata_filter, allowed_columns=allowed_columns)
+    node = _parse_filter_or_none(attributes_filter, allowed_columns=allowed_columns)
     if node is None:
         return None
     return _emit_sql(node)
 
 
 def compile_filter_to_chroma_where(
-    metadata_filter: Optional[MetadataFilter],
+    attributes_filter: Optional[MetadataFilter],
     *,
     allowed_columns: Optional[Iterable[str]] = None,
 ) -> Optional[dict[str, Any]]:
-    node = _parse_filter_or_none(metadata_filter, allowed_columns=allowed_columns)
+    node = _parse_filter_or_none(attributes_filter, allowed_columns=allowed_columns)
     if node is None:
         return None
     return _emit_chroma_where(node)
 
 
 def compile_filter_to_openai_filters(
-    metadata_filter: Optional[MetadataFilter],
+    attributes_filter: Optional[MetadataFilter],
     *,
     allowed_columns: Optional[Iterable[str]] = None,
 ) -> Optional[dict[str, Any]]:
-    node = _parse_filter_or_none(metadata_filter, allowed_columns=allowed_columns)
+    node = _parse_filter_or_none(attributes_filter, allowed_columns=allowed_columns)
     if node is None:
         return None
     return _emit_openai_filters(node)
 
 
 def _parse_filter_or_none(
-    metadata_filter: Optional[MetadataFilter],
+    attributes_filter: Optional[MetadataFilter],
     *,
     allowed_columns: Optional[Iterable[str]],
 ) -> Optional[FilterNode]:
-    if metadata_filter is None:
+    if attributes_filter is None:
         return None
-    if isinstance(metadata_filter, str):
-        text = metadata_filter.strip()
+    if isinstance(attributes_filter, str):
+        text = attributes_filter.strip()
         if not text:
             return None
         parser = _FilterParser(text, allowed_columns=allowed_columns)
         return parser.parse()
-    if isinstance(metadata_filter, Mapping):
+    if isinstance(attributes_filter, Mapping):
         return _parse_filter_mapping_node(
-            metadata_filter,
+            attributes_filter,
             allowed_columns=set(allowed_columns)
             if allowed_columns is not None
             else None,
         )
     raise TypeError(
-        f"metadata_filter must be a string or mapping, got {type(metadata_filter).__name__}"
+        f"attributes_filter must be a string or mapping, got {type(attributes_filter).__name__}"
     )
 
 
@@ -452,7 +471,7 @@ def _validate_allowed_filter_column(
     if column not in allowed_columns:
         allowed = ", ".join(sorted(allowed_columns))
         raise ValueError(
-            f"Unknown metadata column '{column}' in filter. Allowed columns: {allowed}"
+            f"Unknown attribute column '{column}' in filter. Allowed columns: {allowed}"
         )
 
 
@@ -636,7 +655,7 @@ def _tokenize_filter(text: str) -> list[_Token]:
                     break
                 j += 1
             if j >= n or text[j] != "'":
-                raise ValueError("Unterminated string literal in metadata filter")
+                raise ValueError("Unterminated string literal in attributes filter")
             raw = text[i : j + 1]
             value = raw[1:-1].replace("''", "'")
             tokens.append(_Token(kind="STRING", raw=raw, value=value))
@@ -666,7 +685,7 @@ def _tokenize_filter(text: str) -> list[_Token]:
             i = ident_match.end()
             continue
 
-        raise ValueError(f"Unexpected character '{char}' in metadata filter")
+        raise ValueError(f"Unexpected character '{char}' in attributes filter")
 
     tokens.append(_Token(kind="EOF", raw=""))
     return tokens
@@ -710,7 +729,7 @@ def _emit_chroma_where(node: FilterNode) -> dict[str, Any]:
         return {key: [_emit_chroma_where(child) for child in node.children]}
 
     if node.value is None:
-        raise ValueError("NULL is not supported in Chroma metadata filters")
+        raise ValueError("NULL is not supported in Chroma attributes filters")
 
     op_map = {
         "eq": "$eq",
@@ -733,7 +752,7 @@ def _emit_openai_filters(node: FilterNode) -> dict[str, Any]:
         }
 
     if node.value is None:
-        raise ValueError("NULL is not supported in OpenAI metadata filters")
+        raise ValueError("NULL is not supported in OpenAI attributes filters")
 
     value = node.value
     if isinstance(value, list):
@@ -785,3 +804,9 @@ def _sql_literal(value: MetadataFilterValue) -> str:
 
 def _quote_identifier(identifier: str) -> str:
     return '"' + identifier.replace('"', '""') + '"'
+
+
+# Backward-compatible metadata terminology aliases.
+normalize_metadata_schema = normalize_attributes_schema
+metadata_schema_to_json_dict = attributes_schema_to_json_dict
+metadata_schema_from_json_dict = attributes_schema_from_json_dict

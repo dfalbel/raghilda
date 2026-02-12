@@ -1,4 +1,4 @@
-"""Example: metadata-aware insertion and retrieval filtering."""
+"""Example: attributes-aware insertion and retrieval filtering."""
 
 from typing import Annotated
 
@@ -7,7 +7,7 @@ from raghilda.document import MarkdownDocument
 from raghilda.chunker import MarkdownChunker
 
 
-class MetadataSpec:
+class AttributesSpec:
     tenant: str
     topic: str
     priority: int
@@ -23,7 +23,7 @@ SCHEMA_DICT = {
 }
 #
 # 2) Class annotations
-SCHEMA_CLASS = MetadataSpec
+SCHEMA_CLASS = AttributesSpec
 #
 # 3) DuckDB-only fixed-size vectors
 SCHEMA_DUCKDB_WITH_VECTOR = {
@@ -36,7 +36,7 @@ SCHEMA_DUCKDB_WITH_VECTOR = {
 store = DuckDBStore.create(
     location=":memory:",
     embed=None,
-    metadata=SCHEMA_CLASS,
+    attributes=SCHEMA_CLASS,
 )
 
 chunker = MarkdownChunker()
@@ -44,17 +44,17 @@ docs = [
     MarkdownDocument(
         origin="guide.md",
         content="alpha beta gamma",
-        metadata={"tenant": "docs", "topic": "guide", "priority": 10},
+        attributes={"tenant": "docs", "topic": "guide", "priority": 10},
     ),
     MarkdownDocument(
         origin="blog.md",
         content="beta appears in this public blog post",
-        metadata={"tenant": "blog", "topic": "post", "priority": 1},
+        attributes={"tenant": "blog", "topic": "post", "priority": 1},
     ),
     MarkdownDocument(
         origin="notes.md",
         content="beta is also mentioned in internal notes",
-        metadata={"tenant": "docs", "topic": "notes", "priority": 2},
+        attributes={"tenant": "docs", "topic": "notes", "priority": 2},
     ),
 ]
 for doc in docs:
@@ -64,22 +64,22 @@ store.build_index(IndexType.BM25)
 
 print("No filter:")
 for chunk in store.retrieve("beta", top_k=6):
-    print("-", chunk.text.strip(), chunk.metadata)
+    print("-", chunk.text.strip(), chunk.attributes)
 
 print("\nFiltered with SQL-like string:")
 chunks_string = store.retrieve(
     "beta",
     top_k=6,
-    metadata_filter="tenant IN ('docs', 'blog') AND priority IN (5, 10)",
+    attributes_filter="tenant IN ('docs', 'blog') AND priority IN (5, 10)",
 )
 for chunk in chunks_string:
-    print("-", chunk.text.strip(), chunk.metadata)
+    print("-", chunk.text.strip(), chunk.attributes)
 
 print("\nFiltered with dict AST:")
 chunks_dict = store.retrieve(
     "beta",
     top_k=6,
-    metadata_filter={
+    attributes_filter={
         "type": "and",
         "filters": [
             {"type": "eq", "key": "tenant", "value": "docs"},
@@ -88,4 +88,4 @@ chunks_dict = store.retrieve(
     },
 )
 for chunk in chunks_dict:
-    print("-", chunk.text.strip(), chunk.metadata)
+    print("-", chunk.text.strip(), chunk.attributes)

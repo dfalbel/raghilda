@@ -55,7 +55,7 @@ class _FakeOpenAIClient:
         self.vector_stores = _FakeVectorStoresAPI(retrieve_metadata=retrieve_metadata)
 
 
-def test_openai_store_create_accepts_class_metadata_schema(monkeypatch):
+def test_openai_store_create_accepts_class_attributes_schema(monkeypatch):
     class MetadataSpec:
         tenant: str
         priority: int
@@ -63,8 +63,8 @@ def test_openai_store_create_accepts_class_metadata_schema(monkeypatch):
     client = _FakeOpenAIClient()
     monkeypatch.setattr("raghilda._openai_store.openai.Client", lambda **kwargs: client)
 
-    store = OpenAIStore.create(metadata=MetadataSpec, name="my-store")
-    assert store.metadata_schema == {"tenant": str, "priority": int}
+    store = OpenAIStore.create(attributes=MetadataSpec, name="my-store")
+    assert store.attributes_schema == {"tenant": str, "priority": int}
 
     assert len(client.vector_stores.create_calls) == 1
     schema_json = client.vector_stores.create_calls[0]["metadata"][
@@ -73,23 +73,23 @@ def test_openai_store_create_accepts_class_metadata_schema(monkeypatch):
     assert json.loads(schema_json) == {"tenant": "str", "priority": "int"}
 
 
-def test_openai_store_create_rejects_vector_metadata_schema():
-    with pytest.raises(ValueError, match="Vector metadata types are not supported"):
-        OpenAIStore.create(metadata={"embedding25": Annotated[list[float], 25]})
+def test_openai_store_create_rejects_vector_attributes_schema():
+    with pytest.raises(ValueError, match="Vector attribute types are not supported"):
+        OpenAIStore.create(attributes={"embedding25": Annotated[list[float], 25]})
 
 
-def test_openai_store_insert_uses_document_metadata_as_attributes():
+def test_openai_store_insert_uses_document_attributes():
     client = _FakeOpenAIClient()
     store = OpenAIStore(
         client=client,
         store_id="vs_123",
-        metadata={"tenant": str, "priority": int},
+        attributes={"tenant": str, "priority": int},
     )
 
     doc = MarkdownDocument(
         origin="openai.md",
         content="hello world",
-        metadata={"tenant": "docs"},
+        attributes={"tenant": "docs"},
     )
     store.insert(doc)
 
@@ -99,21 +99,21 @@ def test_openai_store_insert_uses_document_metadata_as_attributes():
     assert call["attributes"] == {"tenant": "docs"}
 
 
-def test_openai_store_retrieve_supports_metadata_filter():
+def test_openai_store_retrieve_supports_attributes_filter():
     client = _FakeOpenAIClient()
     store = OpenAIStore(
         client=client,
         store_id="vs_123",
-        metadata={"tenant": str, "priority": int},
+        attributes={"tenant": str, "priority": int},
     )
 
     chunks = store.retrieve(
         "hello",
         top_k=3,
-        metadata_filter="tenant = 'docs' AND priority >= 2",
+        attributes_filter="tenant = 'docs' AND priority >= 2",
     )
     assert len(chunks) == 1
-    assert chunks[0].metadata == {"tenant": "docs", "priority": 2.0}
+    assert chunks[0].attributes == {"tenant": "docs", "priority": 2.0}
 
     assert len(client.vector_stores.search_calls) == 1
     filters = client.vector_stores.search_calls[0]["filters"]
@@ -128,7 +128,7 @@ def test_openai_store_retrieve_supports_metadata_filter():
     chunks = store.retrieve(
         "hello",
         top_k=3,
-        metadata_filter={
+        attributes_filter={
             "type": "and",
             "filters": [
                 {"type": "eq", "key": "tenant", "value": "docs"},
@@ -148,18 +148,18 @@ def test_openai_store_retrieve_supports_metadata_filter():
     }
 
 
-def test_openai_store_rejects_chunk_metadata():
+def test_openai_store_rejects_chunk_attributes():
     client = _FakeOpenAIClient()
     store = OpenAIStore(
         client=client,
         store_id="vs_123",
-        metadata={"tenant": str},
+        attributes={"tenant": str},
     )
 
     doc = MarkdownDocument(
         origin="openai.md",
         content="hello",
-        metadata={"tenant": "docs"},
+        attributes={"tenant": "docs"},
     )
     doc.chunks = [
         MarkdownChunk(
@@ -167,11 +167,11 @@ def test_openai_store_rejects_chunk_metadata():
             end_index=5,
             text="hello",
             token_count=5,
-            metadata={"tenant": "docs"},
+            attributes={"tenant": "docs"},
         )
     ]
 
     with pytest.raises(
-        ValueError, match="OpenAIStore does not support per-chunk metadata"
+        ValueError, match="OpenAIStore does not support per-chunk attributes"
     ):
         store.insert(doc)

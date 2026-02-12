@@ -1,13 +1,13 @@
 ---
-title: "Metadata Filters"
+title: "Attribute Filters"
 guide-section: "Getting Started"
 ---
 
-RagHilda stores can now keep user-defined metadata per chunk and filter retrieval with a small SQL-like predicate language.
+RagHilda stores can now keep user-defined attributes per chunk and filter retrieval with a small SQL-like predicate language.
 
-## 1. Declare Metadata Columns At Store Creation
+## 1. Declare Attribute Columns At Store Creation
 
-You can declare metadata schema types in three ways:
+You can declare attribute schema types in three ways:
 
 1. A dict with Python scalar types
 2. A class with type annotations
@@ -18,7 +18,7 @@ You can declare metadata schema types in three ways:
 from typing import Annotated
 from raghilda.store import DuckDBStore
 
-class MetadataSpec:
+class AttributesSpec:
     tenant: str
     topic: str
     priority: int
@@ -28,7 +28,7 @@ class MetadataSpec:
 store = DuckDBStore.create(
     location="docs.duckdb",
     embed=None,
-    metadata={
+    attributes={
         "tenant": str,
         "topic": str,
         "priority": int,
@@ -40,25 +40,25 @@ store = DuckDBStore.create(
 store = DuckDBStore.create(
     location="docs.duckdb",
     embed=None,
-    metadata=MetadataSpec,
+    attributes=AttributesSpec,
 )
 
-# 3) DuckDB fixed-size vector metadata
+# 3) DuckDB fixed-size vector attributes
 store = DuckDBStore.create(
     location="docs.duckdb",
     embed=None,
-    metadata={
+    attributes={
         "tenant": str,
         "embedding25": Annotated[list[float], 25],
     },
 )
 ```
 
-`ChromaDBStore` and `OpenAIStore` support scalar metadata types and class annotations, but reject vector metadata types.
+`ChromaDBStore` and `OpenAIStore` support scalar attribute types and class annotations, but reject vector attribute types.
 
-## 2. Add Metadata During Insertion
+## 2. Add Attributes During Insertion
 
-Use document-level metadata and optional per-chunk metadata:
+Use document-level attributes and optional per-chunk attributes:
 
 ```{python}
 #| eval: false
@@ -68,7 +68,7 @@ from raghilda.chunk import MarkdownChunk
 doc = MarkdownDocument(
     origin="guide.md",
     content="alpha beta gamma",
-    metadata={"tenant": "docs", "topic": "reference"},
+    attributes={"tenant": "docs", "topic": "reference"},
 )
 doc.chunks = [
     MarkdownChunk(text="alpha", start_index=0, end_index=5, token_count=5),
@@ -77,24 +77,24 @@ doc.chunks = [
         start_index=6,
         end_index=10,
         token_count=4,
-        metadata={"priority": 10, "is_public": False},
+        attributes={"priority": 10, "is_public": False},
     ),
 ]
 store.insert(doc)
 ```
 
-Chunk metadata overrides document metadata for that chunk only. Unspecified metadata values are `None`.
+Chunk attributes override document attributes for that chunk only. Unspecified attribute values are `None`.
 
-## 3. Filter Retrieval With `metadata_filter`
+## 3. Filter Retrieval With `attributes_filter`
 
-The `metadata_filter` string is a SQL-like predicate:
+The `attributes_filter` string is a SQL-like predicate:
 
 ```{python}
 #| eval: false
 chunks = store.retrieve(
     "beta",
     top_k=5,
-    metadata_filter="tenant = 'docs' AND priority >= 5 AND is_public = FALSE",
+    attributes_filter="tenant = 'docs' AND priority >= 5 AND is_public = FALSE",
 )
 ```
 
@@ -105,7 +105,7 @@ You can also pass a dict filter AST instead of a string:
 chunks = store.retrieve(
     "beta",
     top_k=5,
-    metadata_filter={
+    attributes_filter={
         "type": "and",
         "filters": [
             {"type": "in", "key": "tenant", "value": ["docs", "blog"]},
@@ -124,6 +124,6 @@ Supported operators:
 
 ## Notes by Backend
 
-- `DuckDBStore`: metadata columns are real table columns and filter strings compile to SQL `WHERE` clauses.
+- `DuckDBStore`: attribute columns are real table columns and filter strings compile to SQL `WHERE` clauses.
 - `ChromaDBStore`: the same filter string compiles to Chroma `where` filters.
-- `OpenAIStore`: metadata is stored as file attributes; filters compile to OpenAI vector search filters.
+- `OpenAIStore`: attributes are stored as file attributes; store-level metadata stays on the vector store resource.

@@ -35,11 +35,11 @@ from ._metadata import (
     MetadataSchemaSpec,
     MetadataType,
     MetadataValue,
+    attributes_schema_from_json_dict,
+    attributes_schema_to_json_dict,
     compile_filter_to_chroma_where,
-    metadata_schema_from_json_dict,
-    metadata_schema_to_json_dict,
     merge_metadata_values,
-    normalize_metadata_schema,
+    normalize_attributes_schema,
 )
 from tqdm import tqdm
 
@@ -232,7 +232,7 @@ class ChromaDBMarkdownChunk(MarkdownChunk):
         token_count=None,
         doc_id=None,
         chunk_id=None,
-        metadata=None,
+        attributes=None,
     ):
         if token_count is None:
             token_count = len(text)
@@ -243,7 +243,7 @@ class ChromaDBMarkdownChunk(MarkdownChunk):
             end_index=end_index,
             token_count=token_count,
             context=context,
-            metadata=metadata,
+            attributes=attributes,
         )
 
         self.doc_id = doc_id
@@ -264,7 +264,7 @@ class RetrievedChromaDBMarkdownChunk(ChromaDBMarkdownChunk, RetrievedChunk):
         doc_id=None,
         chunk_id=None,
         metrics=None,
-        metadata=None,
+        attributes=None,
     ):
         super().__init__(
             text=text,
@@ -274,7 +274,7 @@ class RetrievedChromaDBMarkdownChunk(ChromaDBMarkdownChunk, RetrievedChunk):
             token_count=token_count,
             doc_id=doc_id,
             chunk_id=chunk_id,
-            metadata=metadata,
+            attributes=attributes,
         )
 
         if metrics is None:
@@ -286,7 +286,7 @@ class RetrievedChromaDBMarkdownChunk(ChromaDBMarkdownChunk, RetrievedChunk):
 class ChromaDBStoreMetadata:
     name: str
     title: str
-    metadata_schema: dict[str, MetadataType]
+    attributes_schema: dict[str, MetadataType]
 
 
 class ChromaDBStore(BaseStore):
@@ -318,7 +318,7 @@ class ChromaDBStore(BaseStore):
         title: Optional[str] = None,
         embed: Optional[ChromaEmbedding] = None,
         collection_metadata: Optional[dict[str, Any]] = None,
-        metadata: Optional[MetadataSchemaSpec] = None,
+        attributes: Optional[MetadataSchemaSpec] = None,
         client: Any = None,
     ):
         """Create a new ChromaDB store.
@@ -341,8 +341,8 @@ class ChromaDBStore(BaseStore):
             If None, Chroma's default embedding function is used.
         collection_metadata
             Additional metadata to attach to the Chroma collection.
-        metadata
-            Optional schema for user-defined metadata columns.
+        attributes
+            Optional schema for user-defined attribute columns.
         client
             Optional pre-configured Chroma client (e.g., HttpClient).
 
@@ -358,8 +358,8 @@ class ChromaDBStore(BaseStore):
         if title is None:
             title = "Raghilda ChromaDB Store"
 
-        metadata_schema = normalize_metadata_schema(
-            metadata=metadata,
+        attributes_schema = normalize_attributes_schema(
+            attributes=attributes,
             reserved_columns=_RESERVED_METADATA_COLUMNS,
             allow_vector_types=False,
         )
@@ -376,7 +376,7 @@ class ChromaDBStore(BaseStore):
         store_metadata = {
             _METADATA_TITLE_KEY: title,
             _METADATA_SCHEMA_KEY: json.dumps(
-                metadata_schema_to_json_dict(metadata_schema)
+                attributes_schema_to_json_dict(attributes_schema)
             ),
         }
 
@@ -395,7 +395,7 @@ class ChromaDBStore(BaseStore):
             metadata=ChromaDBStoreMetadata(
                 name=name,
                 title=title,
-                metadata_schema=metadata_schema,
+                attributes_schema=attributes_schema,
             ),
         )
 
@@ -440,9 +440,9 @@ class ChromaDBStore(BaseStore):
         )
         metadata = collection.metadata or {}
         title = metadata.get(_METADATA_TITLE_KEY, "Raghilda ChromaDB Store")
-        metadata_schema: dict[str, MetadataType] = {}
+        attributes_schema: dict[str, MetadataType] = {}
         if metadata.get(_METADATA_SCHEMA_KEY) is not None:
-            metadata_schema = metadata_schema_from_json_dict(
+            attributes_schema = attributes_schema_from_json_dict(
                 json.loads(metadata[_METADATA_SCHEMA_KEY]),
                 allow_vector_types=False,
             )
@@ -453,7 +453,7 @@ class ChromaDBStore(BaseStore):
             metadata=ChromaDBStoreMetadata(
                 name=name,
                 title=title,
-                metadata_schema=metadata_schema,
+                attributes_schema=attributes_schema,
             ),
         )
 
@@ -466,7 +466,7 @@ class ChromaDBStore(BaseStore):
         self,
         document: Document,
         *,
-        metadata: Optional[Mapping[str, MetadataValue]] = None,
+        attributes: Optional[Mapping[str, MetadataValue]] = None,
     ) -> None:
         if not isinstance(document, MarkdownDocument):
             raise ValueError("Only MarkdownDocument is supported for ChromaDBStore")
@@ -478,12 +478,12 @@ class ChromaDBStore(BaseStore):
         ids = []
         metadatas = []
         for idx, chunk in enumerate(document.chunks):
-            resolved_metadata = merge_metadata_values(
-                metadata_schema=self.metadata.metadata_schema,
-                sources=[document.metadata, metadata, chunk.metadata],
+            resolved_attributes = merge_metadata_values(
+                attributes_schema=self.metadata.attributes_schema,
+                sources=[document.attributes, attributes, chunk.attributes],
             )
             ids.append(f"{document.id}:{idx}")
-            chunk_metadata = {
+            chunk_record = {
                 "doc_id": document.id,
                 "chunk_id": idx,
                 "start_index": chunk.start_index,
@@ -492,8 +492,8 @@ class ChromaDBStore(BaseStore):
                 "context": chunk.context,
                 "origin": document.origin,
             }
-            chunk_metadata.update(resolved_metadata)
-            metadatas.append({k: v for k, v in chunk_metadata.items() if v is not None})
+            chunk_record.update(resolved_attributes)
+            metadatas.append({k: v for k, v in chunk_record.items() if v is not None})
 
         self.collection.upsert(
             ids=ids,
@@ -610,7 +610,7 @@ class ChromaDBStore(BaseStore):
         top_k: int,
         *,
         deoverlap: bool = True,
-        metadata_filter: Optional[MetadataFilter] = None,
+        attributes_filter: Optional[MetadataFilter] = None,
         **kwargs,
     ) -> Sequence[RetrievedChromaDBMarkdownChunk]:
         """Retrieve the most similar chunks to the given text.
@@ -629,23 +629,23 @@ class ChromaDBStore(BaseStore):
             Overlapping chunks are identified by their `start_index` and `end_index`
             positions. When merged, the resulting chunk spans the union of the
             original ranges and combines their metrics.
-        metadata_filter
-            Optional metadata filter as SQL-like string or dict AST.
+        attributes_filter
+            Optional attribute filter as SQL-like string or dict AST.
             Example string: `"tenant = 'docs' AND priority >= 2"`.
         **kwargs
             Additional arguments passed to ChromaDB's `query()` method,
-            such as `where` for metadata filtering.
+            such as `where` for attribute filtering.
 
         Returns
         -------
         Sequence[RetrievedChromaDBMarkdownChunk]
             The retrieved chunks with their relevance metrics.
         """
-        if metadata_filter is not None:
+        if attributes_filter is not None:
             if "where" in kwargs:
-                raise ValueError("Use either metadata_filter or where, not both.")
+                raise ValueError("Use either attributes_filter or where, not both.")
             kwargs["where"] = compile_filter_to_chroma_where(
-                metadata_filter,
+                attributes_filter,
                 allowed_columns=self._filterable_columns(),
             )
 
@@ -665,8 +665,8 @@ class ChromaDBStore(BaseStore):
             documents, metadatas, distances, strict=False
         ):
             metadata = metadata or {}
-            user_metadata = {
-                key: metadata.get(key) for key in self.metadata.metadata_schema
+            user_attributes = {
+                key: metadata.get(key) for key in self.metadata.attributes_schema
             }
             start_index = int(metadata.get("start_index", 0))
             end_index = int(metadata.get("end_index", start_index + len(doc_text)))
@@ -683,7 +683,7 @@ class ChromaDBStore(BaseStore):
                 doc_id=metadata.get("doc_id"),
                 chunk_id=metadata.get("chunk_id"),
                 metrics=metrics,
-                metadata=user_metadata,
+                attributes=user_attributes,
             )
             output.append(chunk)
 
@@ -703,4 +703,4 @@ class ChromaDBStore(BaseStore):
         return len(doc_ids)
 
     def _filterable_columns(self) -> set[str]:
-        return _FILTERABLE_BASE_COLUMNS | set(self.metadata.metadata_schema)
+        return _FILTERABLE_BASE_COLUMNS | set(self.metadata.attributes_schema)

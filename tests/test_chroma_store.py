@@ -188,37 +188,37 @@ def test_retrieve_with_deoverlap():
     assert len(results_separate) == 2
 
 
-def test_insert_and_retrieve_with_metadata_filter():
+def test_insert_and_retrieve_with_attributes_filter():
     store = ChromaDBStore.create(
         location=":memory:",
         embed=DummyEmbeddingFunction(),
-        name="test_metadata_filter",
+        name="test_attributes_filter",
         overwrite=True,
-        metadata={"tenant": str, "topic": str},
+        attributes={"tenant": str, "topic": str},
     )
 
     doc = _make_doc()
-    doc.metadata = {"tenant": "docs"}
+    doc.attributes = {"tenant": "docs"}
     assert doc.chunks is not None
-    doc.chunks[0].metadata = {"topic": "intro"}
+    doc.chunks[0].attributes = {"topic": "intro"}
     store.insert(doc)
 
     intro = store.retrieve(
         "test",
         top_k=5,
-        metadata_filter="tenant = 'docs' AND topic = 'intro'",
+        attributes_filter="tenant = 'docs' AND topic = 'intro'",
         deoverlap=False,
     )
     assert len(intro) >= 1
     for chunk in intro:
-        assert chunk.metadata is not None
-        assert chunk.metadata.get("tenant") == "docs"
-        assert chunk.metadata.get("topic") == "intro"
+        assert chunk.attributes is not None
+        assert chunk.attributes.get("tenant") == "docs"
+        assert chunk.attributes.get("topic") == "intro"
 
     intro_dict = store.retrieve(
         "test",
         top_k=5,
-        metadata_filter={
+        attributes_filter={
             "type": "and",
             "filters": [
                 {"type": "eq", "key": "tenant", "value": "docs"},
@@ -229,12 +229,12 @@ def test_insert_and_retrieve_with_metadata_filter():
     )
     assert len(intro_dict) >= 1
     for chunk in intro_dict:
-        assert chunk.metadata is not None
-        assert chunk.metadata.get("tenant") == "docs"
-        assert chunk.metadata.get("topic") == "intro"
+        assert chunk.attributes is not None
+        assert chunk.attributes.get("tenant") == "docs"
+        assert chunk.attributes.get("topic") == "intro"
 
 
-def test_create_with_metadata_schema_class_annotations():
+def test_create_with_attributes_schema_class_annotations():
     class MetadataSpec:
         tenant: str
         topic: str
@@ -244,23 +244,23 @@ def test_create_with_metadata_schema_class_annotations():
         embed=DummyEmbeddingFunction(),
         name="test_metadata_schema_class",
         overwrite=True,
-        metadata=MetadataSpec,
+        attributes=MetadataSpec,
     )
 
-    assert store.metadata.metadata_schema == {
+    assert store.metadata.attributes_schema == {
         "tenant": str,
         "topic": str,
     }
 
 
 def test_create_rejects_vector_metadata_annotations():
-    with pytest.raises(ValueError, match="Vector metadata types are not supported"):
+    with pytest.raises(ValueError, match="Vector attribute types are not supported"):
         ChromaDBStore.create(
             location=":memory:",
             embed=DummyEmbeddingFunction(),
             name="test_metadata_schema_vector_reject",
             overwrite=True,
-            metadata={"embedding25": Annotated[list[float], 25]},
+            attributes={"embedding25": Annotated[list[float], 25]},
         )
 
 

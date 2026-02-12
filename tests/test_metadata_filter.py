@@ -51,7 +51,7 @@ def test_compile_filter_to_openai_filters():
 
 
 def test_compile_filter_rejects_unknown_column():
-    with pytest.raises(ValueError, match="Unknown metadata column 'unknown'"):
+    with pytest.raises(ValueError, match="Unknown attribute column 'unknown'"):
         compile_filter_to_sql(
             "unknown = 'x'",
             allowed_columns={"tenant"},

@@ -22,14 +22,14 @@ from ._metadata import (
     MetadataSchemaSpec,
     MetadataType,
     MetadataValue,
+    attributes_schema_from_json_dict,
+    attributes_schema_to_json_dict,
     coerce_metadata_value_for_output,
     compile_filter_to_sql,
     duckdb_sql_type_for_metadata_type,
+    normalize_attributes_schema,
     metadata_type_supports_filters,
-    metadata_schema_from_json_dict,
-    metadata_schema_to_json_dict,
     merge_metadata_values,
-    normalize_metadata_schema,
 )
 
 
@@ -78,7 +78,7 @@ class DuckDBMarkdownChunk(MarkdownChunk):
         token_count=None,
         doc_id=None,
         chunk_id=None,
-        metadata=None,
+        attributes=None,
     ):
         # Compute token_count if not provided
         if token_count is None:
@@ -91,7 +91,7 @@ class DuckDBMarkdownChunk(MarkdownChunk):
             end_index=end_index,
             token_count=token_count,
             context=context,
-            metadata=metadata,
+            attributes=attributes,
         )
 
         # Set DuckDB-specific fields
@@ -113,7 +113,7 @@ class RetrievedDuckDBMarkdownChunk(DuckDBMarkdownChunk, RetrievedChunk):
         doc_id=None,
         chunk_id=None,
         metrics=None,
-        metadata=None,
+        attributes=None,
     ):
         # Initialize DuckDBMarkdownChunk
         super().__init__(
@@ -124,7 +124,7 @@ class RetrievedDuckDBMarkdownChunk(DuckDBMarkdownChunk, RetrievedChunk):
             token_count=token_count,
             doc_id=doc_id,
             chunk_id=chunk_id,
-            metadata=metadata,
+            attributes=attributes,
         )
 
         # Initialize metrics
@@ -172,7 +172,7 @@ class BaseStore(ABC):
         self,
         document: Document,
         *,
-        metadata: Optional[Mapping[str, MetadataValue]] = None,
+        attributes: Optional[Mapping[str, MetadataValue]] = None,
     ) -> None:
         """Insert a document into the store.
 
@@ -222,7 +222,7 @@ class DuckDBStoreMetadata:
     name: str
     title: str
     embed: Optional[EmbeddingProvider]
-    metadata_schema: dict[str, MetadataType]
+    attributes_schema: dict[str, MetadataType]
 
 
 class VSSMethod(StrEnum):
@@ -303,9 +303,9 @@ class DuckDBStore(BaseStore):
             except ValueError as e:
                 logger.warning(f"Could not restore embedding provider: {e}")
 
-        metadata_schema: dict[str, MetadataType] = {}
+        attributes_schema: dict[str, MetadataType] = {}
         if metadata_schema_json is not None:
-            metadata_schema = metadata_schema_from_json_dict(
+            attributes_schema = attributes_schema_from_json_dict(
                 json.loads(metadata_schema_json),
                 allow_vector_types=True,
             )
@@ -314,7 +314,7 @@ class DuckDBStore(BaseStore):
             name=name,
             title=title,
             embed=embed,
-            metadata_schema=metadata_schema,
+            attributes_schema=attributes_schema,
         )
 
         return DuckDBStore(con, metadata)
@@ -326,7 +326,7 @@ class DuckDBStore(BaseStore):
         overwrite: bool = False,
         name: Optional[str] = None,
         title: Optional[str] = None,
-        metadata: Optional[MetadataSchemaSpec] = None,
+        attributes: Optional[MetadataSchemaSpec] = None,
     ):
         """Create a new DuckDB store.
 
@@ -343,8 +343,8 @@ class DuckDBStore(BaseStore):
             Internal name for the store.
         title
             Human-readable title for the store.
-        metadata
-            Optional schema for user-defined metadata columns stored per chunk.
+        attributes
+            Optional schema for user-defined attribute columns stored per chunk.
             Example: `{"tenant": str, "priority": int}`.
 
         Returns
@@ -361,8 +361,8 @@ class DuckDBStore(BaseStore):
         if title is None:
             title = "Raghilda DuckDB Store"
 
-        metadata_schema = normalize_metadata_schema(
-            metadata=metadata,
+        attributes_schema = normalize_attributes_schema(
+            attributes=attributes,
             reserved_columns=_RESERVED_METADATA_COLUMNS,
             allow_vector_types=True,
         )
@@ -378,11 +378,13 @@ class DuckDBStore(BaseStore):
         if embed is not None:
             embed_config_json = json.dumps(embed.get_config())
 
-        metadata_schema_json = json.dumps(metadata_schema_to_json_dict(metadata_schema))
-        extra_metadata_column_defs = _duckdb_metadata_column_defs(
-            metadata_schema=metadata_schema,
+        metadata_schema_json = json.dumps(
+            attributes_schema_to_json_dict(attributes_schema)
         )
-        tail_columns = list(extra_metadata_column_defs)
+        extra_attribute_column_defs = _duckdb_attribute_column_defs(
+            attributes_schema=attributes_schema,
+        )
+        tail_columns = list(extra_attribute_column_defs)
         if embedding_column is not None:
             tail_columns.append(embedding_column)
         tail_columns_sql = ""
@@ -453,7 +455,7 @@ class DuckDBStore(BaseStore):
                 name=name,
                 title=title,
                 embed=embed,
-                metadata_schema=metadata_schema,
+                attributes_schema=attributes_schema,
             ),
         )
 
@@ -469,10 +471,10 @@ class DuckDBStore(BaseStore):
         self,
         document: Document,
         *,
-        metadata: Optional[Mapping[str, MetadataValue]] = None,
+        attributes: Optional[Mapping[str, MetadataValue]] = None,
     ) -> None:
         if isinstance(document, MarkdownDocument):
-            self._insert_chunked_document(document, metadata=metadata)
+            self._insert_chunked_document(document, attributes=attributes)
         else:
             raise NotImplementedError(
                 f"Insert not implemented for type {type(document)}"
@@ -585,24 +587,26 @@ class DuckDBStore(BaseStore):
         self,
         chunked_doc: MarkdownDocument,
         *,
-        metadata: Optional[Mapping[str, MetadataValue]] = None,
+        attributes: Optional[Mapping[str, MetadataValue]] = None,
     ) -> None:
         # Document should be chunked for insertion
         assert chunked_doc.chunks is not None
 
         doc = pd.DataFrame([asdict(chunked_doc)])
-        # Metadata is stored in the embeddings table using metadata schema.
-        doc.drop(columns=["chunks", "metadata"], inplace=True, errors="ignore")
+        # Attributes are stored in the embeddings table using the attributes schema.
+        doc.drop(
+            columns=["chunks", "attributes", "metadata"], inplace=True, errors="ignore"
+        )
         chunk_records = [asdict(x) for x in chunked_doc.chunks]
         chunks = pd.DataFrame(chunk_records)
 
-        resolved_chunk_metadata: list[dict[str, MetadataValue]] = []
+        resolved_chunk_attributes: list[dict[str, MetadataValue]] = []
         for chunk in chunked_doc.chunks:
-            chunk_metadata = getattr(chunk, "metadata", None)
-            resolved_chunk_metadata.append(
+            chunk_attributes = getattr(chunk, "attributes", None)
+            resolved_chunk_attributes.append(
                 merge_metadata_values(
-                    metadata_schema=self.metadata.metadata_schema,
-                    sources=[chunked_doc.metadata, metadata, chunk_metadata],
+                    attributes_schema=self.metadata.attributes_schema,
+                    sources=[chunked_doc.attributes, attributes, chunk_attributes],
                 )
             )
 
@@ -623,12 +627,14 @@ class DuckDBStore(BaseStore):
         # Remove text since it's not stored in embeddings table (it's computed from documents table)
         if "text" in chunks.columns:
             chunks.drop(columns=["text"], inplace=True)
-        # User metadata is represented as dedicated columns in embeddings.
+        # User attributes are represented as dedicated columns in embeddings.
+        if "attributes" in chunks.columns:
+            chunks.drop(columns=["attributes"], inplace=True)
         if "metadata" in chunks.columns:
             chunks.drop(columns=["metadata"], inplace=True)
 
-        for column in self.metadata.metadata_schema:
-            chunks[column] = [row[column] for row in resolved_chunk_metadata]
+        for column in self.metadata.attributes_schema:
+            chunks[column] = [row[column] for row in resolved_chunk_attributes]
 
         # local cursor is used so we can use multiple threads
         # see https://duckdb.org/docs/stable/guides/python/multiple_threads.html
@@ -660,7 +666,7 @@ class DuckDBStore(BaseStore):
         top_k: int = 3,
         *,
         deoverlap: bool = True,
-        metadata_filter: Optional[MetadataFilter] = None,
+        attributes_filter: Optional[MetadataFilter] = None,
     ) -> Sequence[RetrievedDuckDBMarkdownChunk]:
         """Retrieve the most similar chunks to the given text.
 
@@ -678,8 +684,8 @@ class DuckDBStore(BaseStore):
             Overlapping chunks are identified by their `start_index` and `end_index`
             positions. When merged, the resulting chunk spans the union of the
             original ranges and combines their metrics.
-        metadata_filter
-            Optional filter to scope retrieval using metadata columns.
+        attributes_filter
+            Optional filter to scope retrieval using attribute columns.
             Can be a SQL-like string or a dict AST.
             Example string: `"tenant = 'docs' AND priority >= 2"`.
 
@@ -693,14 +699,14 @@ class DuckDBStore(BaseStore):
             retrieved_chunks = self.retrieve_vss(
                 text,
                 top_k,
-                metadata_filter=metadata_filter,
+                attributes_filter=attributes_filter,
             )
 
         retrieved_chunks.extend(
             self.retrieve_bm25(
                 text,
                 top_k,
-                metadata_filter=metadata_filter,
+                attributes_filter=attributes_filter,
             )
         )
 
@@ -728,7 +734,7 @@ class DuckDBStore(BaseStore):
         top_k: int,
         *,
         method: VSSMethod = VSSMethod.COSINE_DISTANCE,
-        metadata_filter: Optional[MetadataFilter] = None,
+        attributes_filter: Optional[MetadataFilter] = None,
     ) -> list[RetrievedDuckDBMarkdownChunk]:
         """Retrieve chunks using vector similarity search.
 
@@ -747,8 +753,8 @@ class DuckDBStore(BaseStore):
             - `COSINE_DISTANCE`: Cosine distance (default)
             - `EUCLIDEAN_DISTANCE`: L2/Euclidean distance
             - `NEGATIVE_INNER_PRODUCT`: Negative dot product
-        metadata_filter
-            Optional metadata filter as SQL-like string or dict AST.
+        attributes_filter
+            Optional attribute filter as SQL-like string or dict AST.
 
         Returns
         -------
@@ -768,12 +774,12 @@ class DuckDBStore(BaseStore):
         func, order = _vss_method_info(method)
         allowed_filter_columns = self._filterable_columns()
         compiled_filter = compile_filter_to_sql(
-            metadata_filter,
+            attributes_filter,
             allowed_columns=allowed_filter_columns,
         )
         where_clause = f"WHERE {compiled_filter}" if compiled_filter else ""
-        metadata_select = _metadata_select_clause(
-            alias="e", metadata_schema=self.metadata.metadata_schema
+        attribute_select = _attributes_select_clause(
+            alias="e", attributes_schema=self.metadata.attributes_schema
         )
         query_vector = f"[{','.join(str(x) for x in query)}]::FLOAT[{len(query)}]"
 
@@ -785,7 +791,7 @@ class DuckDBStore(BaseStore):
                 e.start AS start_index,
                 e.end AS end_index,
                 e.context,
-                {metadata_select}
+                {attribute_select}
                 doc.text[ e.start: e.end ] AS text,
                 e.metric_name,
                 e.metric_value
@@ -809,7 +815,7 @@ class DuckDBStore(BaseStore):
                 e.start AS start_index,
                 e.end AS end_index,
                 e.context,
-                {metadata_select}
+                {attribute_select}
                 doc.text[ e.start: e.end ] AS text,
                 '{method}' AS metric_name,
                 {func}(e.embedding, {query_vector}) AS metric_value
@@ -834,16 +840,16 @@ class DuckDBStore(BaseStore):
         for chunk in results:
             chunk_dict = dict(zip(columns, chunk))
             name, value = chunk_dict.pop("metric_name"), chunk_dict.pop("metric_value")
-            metadata_values: dict[str, MetadataValue] = {}
-            for key, metadata_type in self.metadata.metadata_schema.items():
+            attribute_values: dict[str, MetadataValue] = {}
+            for key, metadata_type in self.metadata.attributes_schema.items():
                 if key in chunk_dict:
-                    metadata_values[key] = coerce_metadata_value_for_output(
+                    attribute_values[key] = coerce_metadata_value_for_output(
                         key,
                         chunk_dict.pop(key),
                         metadata_type,
                     )
             chunk_dict["metrics"] = [Metric(name, value)]
-            chunk_dict["metadata"] = metadata_values
+            chunk_dict["attributes"] = attribute_values
             output.append(RetrievedDuckDBMarkdownChunk(**chunk_dict))
 
         return output
@@ -856,7 +862,7 @@ class DuckDBStore(BaseStore):
         k: float = 1.2,
         b: float = 0.75,
         conjunctive: bool = False,
-        metadata_filter: Optional[MetadataFilter] = None,
+        attributes_filter: Optional[MetadataFilter] = None,
     ) -> list[RetrievedDuckDBMarkdownChunk]:
         """Retrieve chunks using BM25 full-text search.
 
@@ -878,8 +884,8 @@ class DuckDBStore(BaseStore):
         conjunctive
             If True, all query terms must be present (AND). If False (default),
             any query term can match (OR).
-        metadata_filter
-            Optional metadata filter as SQL-like string or dict AST.
+        attributes_filter
+            Optional attribute filter as SQL-like string or dict AST.
 
         Returns
         -------
@@ -888,12 +894,12 @@ class DuckDBStore(BaseStore):
         """
         allowed_filter_columns = self._filterable_columns()
         compiled_filter = compile_filter_to_sql(
-            metadata_filter,
+            attributes_filter,
             allowed_columns=allowed_filter_columns,
         )
         where_clause = f"WHERE {compiled_filter}" if compiled_filter else ""
-        metadata_select = _metadata_select_clause(
-            alias="e", metadata_schema=self.metadata.metadata_schema
+        attribute_select = _attributes_select_clause(
+            alias="e", attributes_schema=self.metadata.attributes_schema
         )
 
         if compiled_filter is None:
@@ -904,7 +910,7 @@ class DuckDBStore(BaseStore):
                 e.start AS start_index, 
                 e.end AS end_index, 
                 e.context, 
-                {metadata_select}
+                {attribute_select}
                 doc.text[ e.start: e.end ] AS text,
                 'bm25' AS metric_name,
                 fts_main_chunks.match_bm25(chunk_id, $query, k := $k, b := $b, conjunctive := $conjunctive) AS metric_value
@@ -924,7 +930,7 @@ class DuckDBStore(BaseStore):
                     e.start AS start_index, 
                     e.end AS end_index, 
                     e.context, 
-                    {metadata_select}
+                    {attribute_select}
                     doc.text[ e.start: e.end ] AS text,
                     'bm25' AS metric_name,
                     fts_main_chunks.match_bm25(chunk_id, $query, k := $k, b := $b, conjunctive := $conjunctive) AS metric_value
@@ -960,16 +966,16 @@ class DuckDBStore(BaseStore):
         for chunk in results:
             chunk_dict = dict(zip(columns, chunk))
             name, value = chunk_dict.pop("metric_name"), chunk_dict.pop("metric_value")
-            metadata_values: dict[str, MetadataValue] = {}
-            for key, metadata_type in self.metadata.metadata_schema.items():
+            attribute_values: dict[str, MetadataValue] = {}
+            for key, metadata_type in self.metadata.attributes_schema.items():
                 if key in chunk_dict:
-                    metadata_values[key] = coerce_metadata_value_for_output(
+                    attribute_values[key] = coerce_metadata_value_for_output(
                         key,
                         chunk_dict.pop(key),
                         metadata_type,
                     )
             chunk_dict["metrics"] = [Metric(name, value)]
-            chunk_dict["metadata"] = metadata_values
+            chunk_dict["attributes"] = attribute_values
             output.append(RetrievedDuckDBMarkdownChunk(**chunk_dict))
 
         return output
@@ -1054,32 +1060,32 @@ class DuckDBStore(BaseStore):
         return result[0]
 
     def _filterable_columns(self) -> set[str]:
-        filterable_metadata_columns = {
+        filterable_attribute_columns = {
             key
-            for key, metadata_type in self.metadata.metadata_schema.items()
+            for key, metadata_type in self.metadata.attributes_schema.items()
             if metadata_type_supports_filters(metadata_type)
         }
-        return _FILTERABLE_BASE_COLUMNS | filterable_metadata_columns
+        return _FILTERABLE_BASE_COLUMNS | filterable_attribute_columns
 
 
-def _metadata_select_clause(
-    alias: str, metadata_schema: Mapping[str, MetadataType]
+def _attributes_select_clause(
+    alias: str, attributes_schema: Mapping[str, MetadataType]
 ) -> str:
-    if not metadata_schema:
+    if not attributes_schema:
         return ""
-    parts = [f"{alias}.{_quote_identifier(column)}," for column in metadata_schema]
+    parts = [f"{alias}.{_quote_identifier(column)}," for column in attributes_schema]
     return "\n            " + "\n            ".join(parts) + "\n            "
 
 
-def _duckdb_metadata_column_defs(
+def _duckdb_attribute_column_defs(
     *,
-    metadata_schema: Mapping[str, MetadataType],
+    attributes_schema: Mapping[str, MetadataType],
 ) -> list[str]:
-    if not metadata_schema:
+    if not attributes_schema:
         return []
 
     lines: list[str] = []
-    for column, metadata_type in metadata_schema.items():
+    for column, metadata_type in attributes_schema.items():
         sql_type = duckdb_sql_type_for_metadata_type(metadata_type)
         lines.append(f"{_quote_identifier(column)} {sql_type}")
     return lines

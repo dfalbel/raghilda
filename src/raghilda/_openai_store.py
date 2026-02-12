@@ -10,11 +10,11 @@ from ._metadata import (
     MetadataSchemaSpec,
     MetadataType,
     MetadataValue,
+    attributes_schema_from_json_dict,
+    attributes_schema_to_json_dict,
     compile_filter_to_openai_filters,
-    metadata_schema_from_json_dict,
-    metadata_schema_to_json_dict,
     merge_metadata_values,
-    normalize_metadata_schema,
+    normalize_attributes_schema,
 )
 
 _METADATA_SCHEMA_KEY = "raghilda_metadata_schema_json"
@@ -31,7 +31,7 @@ class OpenAIMarkdownChunk(MarkdownChunk):
         end_index: Optional[int] = None,
         context=None,
         token_count=None,
-        metadata=None,
+        attributes=None,
     ):
         # Compute token_count if not provided (use character count)
         if token_count is None:
@@ -48,7 +48,7 @@ class OpenAIMarkdownChunk(MarkdownChunk):
             end_index=end_index,
             token_count=token_count,
             context=context,
-            metadata=metadata,
+            attributes=attributes,
         )
 
 
@@ -64,7 +64,7 @@ class RetrievedOpenAIMarkdownChunk(OpenAIMarkdownChunk, RetrievedChunk):
         context=None,
         token_count=None,
         metrics=None,
-        metadata=None,
+        attributes=None,
     ):
         # Initialize OpenAIMarkdownChunk
         super().__init__(
@@ -73,7 +73,7 @@ class RetrievedOpenAIMarkdownChunk(OpenAIMarkdownChunk, RetrievedChunk):
             end_index=end_index,
             context=context,
             token_count=token_count,
-            metadata=metadata,
+            attributes=attributes,
         )
 
         # Initialize metrics
@@ -116,8 +116,8 @@ class OpenAIStore(BaseStore):
         base_url: str = "https://api.openai.com/v1",
         api_key: Optional[str] = None,
         *,
-        metadata: Optional[MetadataSchemaSpec] = None,
-        vector_store_metadata: Optional[Mapping[str, str]] = None,
+        attributes: Optional[MetadataSchemaSpec] = None,
+        metadata: Optional[Mapping[str, str]] = None,
         **kwargs,
     ):
         """Create a new OpenAI vector store.
@@ -128,9 +128,9 @@ class OpenAIStore(BaseStore):
             Base URL for the OpenAI API.
         api_key
             OpenAI API key. If None, uses the OPENAI_API_KEY environment variable.
+        attributes
+            Optional schema for user-defined attribute columns.
         metadata
-            Optional schema for user-defined metadata columns.
-        vector_store_metadata
             Additional metadata to attach to the OpenAI vector store resource.
         **kwargs
             Additional arguments passed to the vector store creation
@@ -141,16 +141,16 @@ class OpenAIStore(BaseStore):
         OpenAIStore
             A newly created store instance.
         """
-        metadata_schema = normalize_metadata_schema(
-            metadata=metadata,
+        attributes_schema = normalize_attributes_schema(
+            attributes=attributes,
             reserved_columns=set(),
             allow_vector_types=False,
         )
 
         client = openai.Client(api_key=api_key, base_url=base_url)
-        api_vector_store_metadata = dict(vector_store_metadata or {})
+        api_vector_store_metadata = dict(metadata or {})
         api_vector_store_metadata[_METADATA_SCHEMA_KEY] = json.dumps(
-            metadata_schema_to_json_dict(metadata_schema)
+            attributes_schema_to_json_dict(attributes_schema)
         )
         kwargs["metadata"] = api_vector_store_metadata
 
@@ -158,7 +158,7 @@ class OpenAIStore(BaseStore):
         return OpenAIStore(
             client,
             vector_store.id,
-            metadata=metadata_schema,
+            attributes=attributes_schema,
         )
 
     @staticmethod
@@ -167,7 +167,7 @@ class OpenAIStore(BaseStore):
         base_url: str = "https://api.openai.com/v1",
         api_key: Optional[str] = None,
         *,
-        metadata: Optional[MetadataSchemaSpec] = None,
+        attributes: Optional[MetadataSchemaSpec] = None,
     ):
         """Connect to an existing OpenAI vector store.
 
@@ -179,8 +179,8 @@ class OpenAIStore(BaseStore):
             Base URL for the OpenAI API.
         api_key
             OpenAI API key. If None, uses the OPENAI_API_KEY environment variable.
-        metadata
-            Optional schema for user-defined metadata columns. If omitted,
+        attributes
+            Optional schema for user-defined attribute columns. If omitted,
             schema is loaded from the vector store metadata when available.
 
         Returns
@@ -192,13 +192,13 @@ class OpenAIStore(BaseStore):
         vector_store = client.vector_stores.retrieve(vector_store_id=store_id)
         store_metadata = getattr(vector_store, "metadata", None) or {}
 
-        resolved_metadata = normalize_metadata_schema(
-            metadata=metadata,
+        resolved_attributes = normalize_attributes_schema(
+            attributes=attributes,
             reserved_columns=set(),
             allow_vector_types=False,
         )
-        if not resolved_metadata and store_metadata.get(_METADATA_SCHEMA_KEY):
-            resolved_metadata = metadata_schema_from_json_dict(
+        if not resolved_attributes and store_metadata.get(_METADATA_SCHEMA_KEY):
+            resolved_attributes = attributes_schema_from_json_dict(
                 json.loads(store_metadata[_METADATA_SCHEMA_KEY]),
                 allow_vector_types=False,
             )
@@ -206,7 +206,7 @@ class OpenAIStore(BaseStore):
         return OpenAIStore(
             client,
             store_id,
-            metadata=resolved_metadata,
+            attributes=resolved_attributes,
         )
 
     def __init__(
@@ -214,17 +214,17 @@ class OpenAIStore(BaseStore):
         client: Any,
         store_id: str,
         *,
-        metadata: Optional[Mapping[str, MetadataType]] = None,
+        attributes: Optional[Mapping[str, MetadataType]] = None,
     ):
         self.client = client
         self.store_id = store_id
-        self.metadata_schema = dict(metadata or {})
+        self.attributes_schema = dict(attributes or {})
 
     def insert(
         self,
         document: Document,
         *,
-        metadata: Optional[Mapping[str, MetadataValue]] = None,
+        attributes: Optional[Mapping[str, MetadataValue]] = None,
     ) -> None:
         # Upload the document content as a file to the vector store
         # create a temporary file, write the content to it, and upload it
@@ -233,23 +233,23 @@ class OpenAIStore(BaseStore):
 
         if document.chunks is not None:
             for chunk in document.chunks:
-                if chunk.metadata:
+                if chunk.attributes:
                     raise ValueError(
-                        "OpenAIStore does not support per-chunk metadata; use document-level metadata."
+                        "OpenAIStore does not support per-chunk attributes; use document-level attributes."
                     )
 
-        resolved_metadata = merge_metadata_values(
-            metadata_schema=self.metadata_schema,
-            sources=[document.metadata, metadata],
+        resolved_attributes = merge_metadata_values(
+            attributes_schema=self.attributes_schema,
+            sources=[document.attributes, attributes],
         )
-        attributes = _normalize_openai_attributes(resolved_metadata)
+        file_attributes = _normalize_openai_attributes(resolved_attributes)
 
         file = ((document.origin or "") + ".md", document.content.encode("utf-8"))
-        if attributes:
+        if file_attributes:
             self.client.vector_stores.files.upload_and_poll(
                 file=file,
                 vector_store_id=self.store_id,
-                attributes=attributes,
+                attributes=file_attributes,
             )
         else:
             self.client.vector_stores.files.upload_and_poll(
@@ -262,15 +262,15 @@ class OpenAIStore(BaseStore):
         text: str,
         top_k: int,
         *,
-        metadata_filter: Optional[MetadataFilter] = None,
+        attributes_filter: Optional[MetadataFilter] = None,
         **kwargs,
     ) -> Sequence[RetrievedOpenAIMarkdownChunk]:
-        if metadata_filter is not None:
+        if attributes_filter is not None:
             if "filters" in kwargs:
-                raise ValueError("Use either metadata_filter or filters, not both.")
+                raise ValueError("Use either attributes_filter or filters, not both.")
             kwargs["filters"] = compile_filter_to_openai_filters(
-                metadata_filter,
-                allowed_columns=set(self.metadata_schema),
+                attributes_filter,
+                allowed_columns=set(self.attributes_schema),
             )
 
         results = self.client.vector_stores.search(
@@ -283,13 +283,13 @@ class OpenAIStore(BaseStore):
         chunks = []
         for item in results.data:
             chunk_text = "\n\n".join([x.text for x in item.content])
-            metadata_values = {
-                key: (item.attributes or {}).get(key) for key in self.metadata_schema
+            attribute_values = {
+                key: (item.attributes or {}).get(key) for key in self.attributes_schema
             }
             chunk = RetrievedOpenAIMarkdownChunk(
                 text=chunk_text,
                 metrics=[Metric(name="similarity", value=item.score)],
-                metadata=metadata_values,
+                attributes=attribute_values,
             )
             chunks.append(chunk)
 
@@ -302,10 +302,10 @@ class OpenAIStore(BaseStore):
 
 
 def _normalize_openai_attributes(
-    metadata: Mapping[str, MetadataValue],
+    attributes: Mapping[str, MetadataValue],
 ) -> dict[str, str | float | bool]:
     out: dict[str, str | float | bool] = {}
-    for key, value in metadata.items():
+    for key, value in attributes.items():
         if value is None:
             continue
         if isinstance(value, bool):
@@ -316,6 +316,6 @@ def _normalize_openai_attributes(
             out[key] = float(value)
         else:
             raise ValueError(
-                f"Unsupported OpenAI metadata type for '{key}': {type(value).__name__}"
+                f"Unsupported OpenAI attribute type for '{key}': {type(value).__name__}"
             )
     return out

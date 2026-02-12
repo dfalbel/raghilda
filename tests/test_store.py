@@ -138,21 +138,21 @@ class TestDuckDBStore:
                         f"Chunks overlap: [{chunk1.start_index}, {chunk1.end_index}) and [{chunk2.start_index}, {chunk2.end_index})"
                     )
 
-    def test_create_store_with_metadata_schema(self):
+    def test_create_store_with_attributes_schema(self):
         store = DuckDBStore.create(
             location=":memory:",
             embed=None,
             overwrite=True,
             name="metadata_schema_db",
             title="Metadata Schema Store",
-            metadata={
+            attributes={
                 "tenant": str,
                 "priority": int,
                 "is_public": bool,
             },
         )
 
-        assert store.metadata.metadata_schema == {
+        assert store.metadata.attributes_schema == {
             "tenant": str,
             "priority": int,
             "is_public": bool,
@@ -168,7 +168,7 @@ class TestDuckDBStore:
         assert columns_by_name["priority"] == "INTEGER"
         assert columns_by_name["is_public"] == "BOOLEAN"
 
-    def test_create_store_with_metadata_schema_class_annotations(self):
+    def test_create_store_with_attributes_schema_class_annotations(self):
         class MetadataSpec:
             tenant: str
             priority: int
@@ -178,27 +178,27 @@ class TestDuckDBStore:
             location=":memory:",
             embed=None,
             overwrite=True,
-            metadata=MetadataSpec,
+            attributes=MetadataSpec,
         )
 
-        assert store.metadata.metadata_schema == {
+        assert store.metadata.attributes_schema == {
             "tenant": str,
             "priority": int,
             "is_public": bool,
         }
 
-    def test_create_store_with_vector_metadata_annotation(self):
+    def test_create_store_with_vector_attributes_annotation(self):
         store = DuckDBStore.create(
             location=":memory:",
             embed=None,
             overwrite=True,
-            metadata={
+            attributes={
                 "tenant": str,
                 "embedding25": Annotated[list[float], 25],
             },
         )
 
-        vector_type = store.metadata.metadata_schema["embedding25"]
+        vector_type = store.metadata.attributes_schema["embedding25"]
         assert isinstance(vector_type, MetadataFloatVectorType)
         assert vector_type.dimension == 25
 
@@ -210,7 +210,7 @@ class TestDuckDBStore:
         doc = MarkdownDocument(
             origin="vector-metadata",
             content="hello vector metadata",
-            metadata={"tenant": "docs", "embedding25": vector},
+            attributes={"tenant": "docs", "embedding25": vector},
         )
         doc.chunks = [
             MarkdownChunk(
@@ -229,26 +229,26 @@ class TestDuckDBStore:
             deoverlap=False,
         )
         assert len(results) == 1
-        assert results[0].metadata is not None
-        assert results[0].metadata["embedding25"] == pytest.approx(vector)
+        assert results[0].attributes is not None
+        assert results[0].attributes["embedding25"] == pytest.approx(vector)
 
         assert "tenant" in store._filterable_columns()
         assert "embedding25" not in store._filterable_columns()
 
-        with pytest.raises(ValueError, match="Unknown metadata column 'embedding25'"):
+        with pytest.raises(ValueError, match="Unknown attribute column 'embedding25'"):
             store.retrieve(
                 "hello",
                 top_k=1,
                 deoverlap=False,
-                metadata_filter="embedding25 = 1",
+                attributes_filter="embedding25 = 1",
             )
 
-    def test_insert_and_retrieve_with_metadata_filter(self):
+    def test_insert_and_retrieve_with_attributes_filter(self):
         store = DuckDBStore.create(
             location=":memory:",
             embed=None,
             overwrite=True,
-            metadata={
+            attributes={
                 "tenant": str,
                 "priority": int,
                 "is_public": bool,
@@ -258,7 +258,7 @@ class TestDuckDBStore:
         doc = MarkdownDocument(
             origin="metadata-test",
             content="alpha beta gamma",
-            metadata={"tenant": "docs", "priority": 1},
+            attributes={"tenant": "docs", "priority": 1},
         )
         doc.chunks = [
             MarkdownChunk(
@@ -266,7 +266,7 @@ class TestDuckDBStore:
                 end_index=5,
                 text="alpha",
                 token_count=5,
-                metadata={"priority": 5, "is_public": False},
+                attributes={"priority": 5, "is_public": False},
             ),
             MarkdownChunk(
                 start_index=6,
@@ -289,11 +289,11 @@ class TestDuckDBStore:
             "alpha",
             top_k=10,
             deoverlap=False,
-            metadata_filter="tenant = 'docs' AND priority >= 5",
+            attributes_filter="tenant = 'docs' AND priority >= 5",
         )
         assert len(private_results) == 1
         assert private_results[0].text.strip() == "alpha"
-        assert private_results[0].metadata == {
+        assert private_results[0].attributes == {
             "tenant": "docs",
             "priority": 5,
             "is_public": False,
@@ -303,11 +303,11 @@ class TestDuckDBStore:
             "beta",
             top_k=10,
             deoverlap=False,
-            metadata_filter="tenant = 'docs' AND is_public = NULL AND priority = 1",
+            attributes_filter="tenant = 'docs' AND is_public = NULL AND priority = 1",
         )
         assert len(public_results) == 1
         assert public_results[0].text.strip() == "beta"
-        assert public_results[0].metadata == {
+        assert public_results[0].attributes == {
             "tenant": "docs",
             "priority": 1,
             "is_public": None,
@@ -317,7 +317,7 @@ class TestDuckDBStore:
             "alpha",
             top_k=10,
             deoverlap=False,
-            metadata_filter={
+            attributes_filter={
                 "type": "and",
                 "filters": [
                     {"type": "eq", "key": "tenant", "value": "docs"},
@@ -328,7 +328,7 @@ class TestDuckDBStore:
         assert len(dict_results) == 1
         assert dict_results[0].text.strip() == "alpha"
 
-    def test_insert_metadata_without_declared_schema_fails(self):
+    def test_insert_attributes_without_declared_schema_fails(self):
         store = DuckDBStore.create(
             location=":memory:",
             embed=None,
@@ -338,7 +338,7 @@ class TestDuckDBStore:
         doc = MarkdownDocument(
             origin="metadata-fail",
             content="hello",
-            metadata={"tenant": "docs"},
+            attributes={"tenant": "docs"},
         )
         doc.chunks = [
             MarkdownChunk(
@@ -349,21 +349,21 @@ class TestDuckDBStore:
             )
         ]
 
-        with pytest.raises(ValueError, match="Unknown metadata key 'tenant'"):
+        with pytest.raises(ValueError, match="Unknown attribute key 'tenant'"):
             store.insert(doc)
 
-    def test_insert_unknown_chunk_metadata_key_fails(self):
+    def test_insert_unknown_chunk_attributes_key_fails(self):
         store = DuckDBStore.create(
             location=":memory:",
             embed=None,
             overwrite=True,
-            metadata={"tenant": str},
+            attributes={"tenant": str},
         )
 
         doc = MarkdownDocument(
             origin="unknown-key-fail",
             content="hello",
-            metadata={"tenant": "docs"},
+            attributes={"tenant": "docs"},
         )
         doc.chunks = [
             MarkdownChunk(
@@ -371,25 +371,25 @@ class TestDuckDBStore:
                 end_index=5,
                 text="hello",
                 token_count=5,
-                metadata={"unknown": "x"},
+                attributes={"unknown": "x"},
             )
         ]
 
-        with pytest.raises(ValueError, match="Unknown metadata key 'unknown'"):
+        with pytest.raises(ValueError, match="Unknown attribute key 'unknown'"):
             store.insert(doc)
 
-    def test_connect_restores_metadata_schema(self, tmp_path):
+    def test_connect_restores_attributes_schema(self, tmp_path):
         db_path = tmp_path / "metadata-connect.db"
         store = DuckDBStore.create(
             location=str(db_path),
             embed=None,
             overwrite=True,
-            metadata={"tenant": str, "priority": int},
+            attributes={"tenant": str, "priority": int},
         )
         store.con.close()
 
         store2 = DuckDBStore.connect(str(db_path))
-        assert store2.metadata.metadata_schema == {
+        assert store2.metadata.attributes_schema == {
             "tenant": str,
             "priority": int,
         }

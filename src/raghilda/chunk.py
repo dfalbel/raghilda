@@ -26,8 +26,8 @@ class Chunk:
     context
         Optional heading context showing the document hierarchy at this
         chunk's position (e.g., the Markdown headings that apply).
-    metadata
-        Optional user-defined metadata for filtering and scoping retrieval.
+    attributes
+        Optional user-defined attributes for filtering and scoping retrieval.
     """
 
     text: str
@@ -35,7 +35,16 @@ class Chunk:
     end_index: int
     token_count: int
     context: Optional[str] = None
-    metadata: Optional[dict[str, Any]] = None
+    attributes: Optional[dict[str, Any]] = None
+
+    @property
+    def metadata(self) -> Optional[dict[str, Any]]:
+        """Backward-compatible alias for attributes."""
+        return self.attributes
+
+    @metadata.setter
+    def metadata(self, value: Optional[dict[str, Any]]) -> None:
+        self.attributes = value
 
     @classmethod
     def from_any(cls, chunk: Union[ChunkLike, IntoChunk]) -> "Chunk":
@@ -64,13 +73,16 @@ class Chunk:
                 )
             return result
         elif isinstance(chunk, ChunkLike):
+            raw_attributes = getattr(chunk, "attributes", None)
+            if raw_attributes is None:
+                raw_attributes = getattr(chunk, "metadata", None)
             return cls(
                 text=chunk.text,
                 start_index=chunk.start_index,
                 end_index=chunk.end_index,
                 token_count=chunk.token_count,
                 context=getattr(chunk, "context", None),
-                metadata=dict(getattr(chunk, "metadata", {}) or {}),
+                attributes=dict(raw_attributes or {}),
             )
         raise TypeError(f"Cannot convert {type(chunk).__name__} to Chunk")
 
