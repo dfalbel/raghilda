@@ -7,6 +7,7 @@ from typing import Any, Mapping, Optional, Sequence
 from dataclasses import dataclass
 from ._metadata import (
     MetadataFilter,
+    MetadataSchemaSpec,
     MetadataType,
     MetadataValue,
     compile_filter_to_openai_filters,
@@ -115,7 +116,7 @@ class OpenAIStore(BaseStore):
         base_url: str = "https://api.openai.com/v1",
         api_key: Optional[str] = None,
         *,
-        metadata: Optional[Mapping[str, type[Any]]] = None,
+        metadata: Optional[MetadataSchemaSpec] = None,
         vector_store_metadata: Optional[Mapping[str, str]] = None,
         **kwargs,
     ):
@@ -143,6 +144,7 @@ class OpenAIStore(BaseStore):
         metadata_schema = normalize_metadata_schema(
             metadata=metadata,
             reserved_columns=set(),
+            allow_vector_types=False,
         )
 
         client = openai.Client(api_key=api_key, base_url=base_url)
@@ -165,7 +167,7 @@ class OpenAIStore(BaseStore):
         base_url: str = "https://api.openai.com/v1",
         api_key: Optional[str] = None,
         *,
-        metadata: Optional[Mapping[str, type[Any]]] = None,
+        metadata: Optional[MetadataSchemaSpec] = None,
     ):
         """Connect to an existing OpenAI vector store.
 
@@ -193,10 +195,12 @@ class OpenAIStore(BaseStore):
         resolved_metadata = normalize_metadata_schema(
             metadata=metadata,
             reserved_columns=set(),
+            allow_vector_types=False,
         )
         if not resolved_metadata and store_metadata.get(_METADATA_SCHEMA_KEY):
             resolved_metadata = metadata_schema_from_json_dict(
-                json.loads(store_metadata[_METADATA_SCHEMA_KEY])
+                json.loads(store_metadata[_METADATA_SCHEMA_KEY]),
+                allow_vector_types=False,
             )
 
         return OpenAIStore(

@@ -1,10 +1,12 @@
 import os
 import socket
+from typing import Annotated
 import pytest
 from raghilda.store import DuckDBStore, OpenAIStore
 from raghilda.scrape import find_links
 from raghilda.document import MarkdownDocument
 from raghilda.chunk import MarkdownChunk, RetrievedChunk
+from raghilda._metadata import MetadataFloatVectorType
 from raghilda._store import (
     RetrievedDuckDBMarkdownChunk,
     IndexType,
@@ -165,6 +167,81 @@ class TestDuckDBStore:
         assert columns_by_name["tenant"] == "VARCHAR"
         assert columns_by_name["priority"] == "INTEGER"
         assert columns_by_name["is_public"] == "BOOLEAN"
+
+    def test_create_store_with_metadata_schema_class_annotations(self):
+        class MetadataSpec:
+            tenant: str
+            priority: int
+            is_public: bool
+
+        store = DuckDBStore.create(
+            location=":memory:",
+            embed=None,
+            overwrite=True,
+            metadata=MetadataSpec,
+        )
+
+        assert store.metadata.metadata_schema == {
+            "tenant": str,
+            "priority": int,
+            "is_public": bool,
+        }
+
+    def test_create_store_with_vector_metadata_annotation(self):
+        store = DuckDBStore.create(
+            location=":memory:",
+            embed=None,
+            overwrite=True,
+            metadata={
+                "tenant": str,
+                "embedding25": Annotated[list[float], 25],
+            },
+        )
+
+        vector_type = store.metadata.metadata_schema["embedding25"]
+        assert isinstance(vector_type, MetadataFloatVectorType)
+        assert vector_type.dimension == 25
+
+        columns = store.con.execute("DESCRIBE embeddings").fetchall()
+        columns_by_name = {row[0]: row[1] for row in columns}
+        assert columns_by_name["embedding25"] == "FLOAT[25]"
+
+        vector = [float(i) for i in range(25)]
+        doc = MarkdownDocument(
+            origin="vector-metadata",
+            content="hello vector metadata",
+            metadata={"tenant": "docs", "embedding25": vector},
+        )
+        doc.chunks = [
+            MarkdownChunk(
+                start_index=0,
+                end_index=len(doc.content),
+                text=doc.content,
+                token_count=len(doc.content),
+            )
+        ]
+        store.insert(doc)
+        store.build_index(IndexType.BM25)
+
+        results = store.retrieve(
+            "hello",
+            top_k=1,
+            deoverlap=False,
+        )
+        assert len(results) == 1
+        assert results[0].metadata is not None
+        assert results[0].metadata["embedding25"] == pytest.approx(vector)
+
+        assert "tenant" in store._filterable_columns()
+        assert "embedding25" not in store._filterable_columns()
+
+        with pytest.raises(ValueError, match="Unknown metadata column 'embedding25'"):
+            store.retrieve(
+                "hello",
+                top_k=1,
+                deoverlap=False,
+                metadata_filter="embedding25 = 1",
+            )
 
     def test_insert_and_retrieve_with_metadata_filter(self):
         store = DuckDBStore.create(

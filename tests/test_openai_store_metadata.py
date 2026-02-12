@@ -1,4 +1,6 @@
+import json
 from types import SimpleNamespace
+from typing import Annotated
 
 import pytest
 
@@ -17,10 +19,16 @@ class _FakeVectorStoreFilesAPI:
 
 
 class _FakeVectorStoresAPI:
-    def __init__(self):
+    def __init__(self, *, retrieve_metadata=None):
         self.files = _FakeVectorStoreFilesAPI()
+        self.create_calls = []
         self.search_calls = []
         self.retrieve_calls = []
+        self.retrieve_metadata = dict(retrieve_metadata or {})
+
+    def create(self, **kwargs):
+        self.create_calls.append(kwargs)
+        return SimpleNamespace(id="vs_123")
 
     def search(self, **kwargs):
         self.search_calls.append(kwargs)
@@ -38,13 +46,36 @@ class _FakeVectorStoresAPI:
         self.retrieve_calls.append(kwargs)
         return SimpleNamespace(
             file_counts=SimpleNamespace(total=1),
-            metadata={},
+            metadata=self.retrieve_metadata,
         )
 
 
 class _FakeOpenAIClient:
-    def __init__(self):
-        self.vector_stores = _FakeVectorStoresAPI()
+    def __init__(self, *, retrieve_metadata=None):
+        self.vector_stores = _FakeVectorStoresAPI(retrieve_metadata=retrieve_metadata)
+
+
+def test_openai_store_create_accepts_class_metadata_schema(monkeypatch):
+    class MetadataSpec:
+        tenant: str
+        priority: int
+
+    client = _FakeOpenAIClient()
+    monkeypatch.setattr("raghilda._openai_store.openai.Client", lambda **kwargs: client)
+
+    store = OpenAIStore.create(metadata=MetadataSpec, name="my-store")
+    assert store.metadata_schema == {"tenant": str, "priority": int}
+
+    assert len(client.vector_stores.create_calls) == 1
+    schema_json = client.vector_stores.create_calls[0]["metadata"][
+        "raghilda_metadata_schema_json"
+    ]
+    assert json.loads(schema_json) == {"tenant": "str", "priority": "int"}
+
+
+def test_openai_store_create_rejects_vector_metadata_schema():
+    with pytest.raises(ValueError, match="Vector metadata types are not supported"):
+        OpenAIStore.create(metadata={"embedding25": Annotated[list[float], 25]})
 
 
 def test_openai_store_insert_uses_document_metadata_as_attributes():

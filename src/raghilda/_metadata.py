@@ -2,67 +2,197 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import re
-from typing import Any, Iterable, Mapping, Optional, TypeAlias, cast
+from typing import (
+    Annotated,
+    Any,
+    Iterable,
+    Mapping,
+    Optional,
+    TypeAlias,
+    cast,
+    get_args,
+    get_origin,
+    get_type_hints,
+)
 
 MetadataScalar = str | int | float | bool
-MetadataValue = MetadataScalar | None
-MetadataType: TypeAlias = type[str] | type[int] | type[float] | type[bool]
+MetadataFilterValue = MetadataScalar | None
+MetadataScalarType: TypeAlias = type[str] | type[int] | type[float] | type[bool]
+
+
+@dataclass(frozen=True)
+class MetadataFloatVectorType:
+    dimension: int
+
+
+MetadataValue = MetadataScalar | list[float] | None
+MetadataType: TypeAlias = MetadataScalarType | MetadataFloatVectorType
+MetadataSchemaSpec: TypeAlias = Mapping[str, Any] | type[Any]
 MetadataFilter: TypeAlias = str | Mapping[str, Any]
 
-_METADATA_TYPE_TO_NAME: dict[MetadataType, str] = {
+_METADATA_SCALAR_TYPE_TO_NAME: dict[MetadataScalarType, str] = {
     str: "str",
     int: "int",
     float: "float",
     bool: "bool",
 }
-_METADATA_NAME_TO_TYPE: dict[str, MetadataType] = {
-    value: key for key, value in _METADATA_TYPE_TO_NAME.items()
+_METADATA_NAME_TO_SCALAR_TYPE: dict[str, MetadataScalarType] = {
+    value: key for key, value in _METADATA_SCALAR_TYPE_TO_NAME.items()
 }
+_FLOAT_VECTOR_TYPE_PATTERN = re.compile(r"^float_vector\[(\d+)\]$")
 
 
 def normalize_metadata_schema(
-    metadata: Optional[Mapping[str, type[Any]]],
+    metadata: Optional[MetadataSchemaSpec],
     *,
     reserved_columns: Iterable[str],
+    allow_vector_types: bool = False,
 ) -> dict[str, MetadataType]:
-    schema = dict(metadata or {})
+    schema_items = dict(_metadata_schema_items(metadata))
     reserved = set(reserved_columns)
+    schema: dict[str, MetadataType] = {}
 
-    for key, value in schema.items():
+    for key, annotation in schema_items.items():
         if not isinstance(key, str) or not key:
             raise ValueError("Metadata column names must be non-empty strings")
         if key in reserved:
             raise ValueError(f"Metadata column '{key}' is reserved")
-        if not isinstance(value, type) or value not in _METADATA_TYPE_TO_NAME:
-            raise ValueError(
-                f"Metadata type for '{key}' must be one of: str, int, float, bool"
-            )
-        schema[key] = cast(MetadataType, value)
+
+        schema[key] = _parse_metadata_type(
+            key=key,
+            annotation=annotation,
+            allow_vector_types=allow_vector_types,
+        )
 
     return schema
+
+
+def _metadata_schema_items(metadata: Optional[MetadataSchemaSpec]) -> Mapping[str, Any]:
+    if metadata is None:
+        return {}
+    if isinstance(metadata, Mapping):
+        return metadata
+    if isinstance(metadata, type):
+        try:
+            return get_type_hints(metadata, include_extras=True)
+        except Exception as e:
+            raise ValueError(
+                f"Failed to parse metadata annotations from '{metadata.__name__}': {e}"
+            )
+    raise ValueError("metadata must be a mapping or a class with type annotations")
+
+
+def _parse_metadata_type(
+    *,
+    key: str,
+    annotation: Any,
+    allow_vector_types: bool,
+) -> MetadataType:
+    if isinstance(annotation, type) and annotation in _METADATA_SCALAR_TYPE_TO_NAME:
+        return cast(MetadataScalarType, annotation)
+
+    if isinstance(annotation, MetadataFloatVectorType):
+        if not allow_vector_types:
+            raise ValueError(
+                f"Vector metadata types are not supported for '{key}' in this backend"
+            )
+        return annotation
+
+    origin = get_origin(annotation)
+    if origin is Annotated:
+        args = get_args(annotation)
+        base = args[0]
+        extras = args[1:]
+
+        if isinstance(base, type) and base in _METADATA_SCALAR_TYPE_TO_NAME:
+            return cast(MetadataScalarType, base)
+
+        vector_type = _parse_vector_annotation(base, extras)
+        if vector_type is None:
+            raise ValueError(
+                f"Unsupported metadata annotation for '{key}': {annotation}"
+            )
+        if not allow_vector_types:
+            raise ValueError(
+                f"Vector metadata types are not supported for '{key}' in this backend"
+            )
+        return vector_type
+
+    raise ValueError(
+        f"Metadata type for '{key}' must be one of: str, int, float, bool, or Annotated[list[float], N]"
+    )
+
+
+def _parse_vector_annotation(
+    base: Any, extras: tuple[Any, ...]
+) -> Optional[MetadataType]:
+    base_origin = get_origin(base)
+    base_args = get_args(base)
+    if base_origin is not list or len(base_args) != 1 or base_args[0] is not float:
+        return None
+
+    dimensions = [
+        x for x in extras if isinstance(x, int) and not isinstance(x, bool) and x > 0
+    ]
+    if len(dimensions) != 1:
+        raise ValueError(
+            "Vector metadata annotations must include exactly one positive integer dimension"
+        )
+
+    return MetadataFloatVectorType(dimension=dimensions[0])
 
 
 def metadata_schema_to_json_dict(
     metadata_schema: Mapping[str, MetadataType],
 ) -> dict[str, str]:
     return {
-        key: _METADATA_TYPE_TO_NAME[value] for key, value in metadata_schema.items()
+        key: _metadata_type_to_name(value) for key, value in metadata_schema.items()
     }
+
+
+def _metadata_type_to_name(metadata_type: MetadataType) -> str:
+    if isinstance(metadata_type, MetadataFloatVectorType):
+        return f"float_vector[{metadata_type.dimension}]"
+    return _METADATA_SCALAR_TYPE_TO_NAME[metadata_type]
 
 
 def metadata_schema_from_json_dict(
     metadata_schema_json: Mapping[str, Any],
+    *,
+    allow_vector_types: bool = True,
 ) -> dict[str, MetadataType]:
     schema: dict[str, MetadataType] = {}
     for key, value in metadata_schema_json.items():
         if not isinstance(key, str) or not key:
             raise ValueError("Metadata column names must be non-empty strings")
-        if not isinstance(value, str) or value not in _METADATA_NAME_TO_TYPE:
+        if not isinstance(value, str):
             raise ValueError(
-                f"Metadata type for '{key}' must be one of: str, int, float, bool"
+                f"Metadata type for '{key}' must be one of: str, int, float, bool, or float_vector[N]"
             )
-        schema[key] = _METADATA_NAME_TO_TYPE[value]
+
+        if value in _METADATA_NAME_TO_SCALAR_TYPE:
+            schema[key] = _METADATA_NAME_TO_SCALAR_TYPE[value]
+            continue
+
+        vector_type = _parse_metadata_type_name(value)
+        if vector_type is None:
+            raise ValueError(
+                f"Metadata type for '{key}' must be one of: str, int, float, bool, or float_vector[N]"
+            )
+        if isinstance(vector_type, MetadataFloatVectorType) and not allow_vector_types:
+            raise ValueError(
+                f"Vector metadata types are not supported for '{key}' in this backend"
+            )
+        schema[key] = vector_type
+
     return schema
+
+
+def _parse_metadata_type_name(type_name: str) -> Optional[MetadataType]:
+    match = _FLOAT_VECTOR_TYPE_PATTERN.fullmatch(type_name)
+    if match is not None:
+        return MetadataFloatVectorType(dimension=int(match.group(1)))
+    return None
 
 
 def duckdb_sql_type_for_metadata_type(metadata_type: MetadataType) -> str:
@@ -74,6 +204,8 @@ def duckdb_sql_type_for_metadata_type(metadata_type: MetadataType) -> str:
         return "DOUBLE"
     if metadata_type is bool:
         return "BOOLEAN"
+    if isinstance(metadata_type, MetadataFloatVectorType):
+        return f"FLOAT[{metadata_type.dimension}]"
     raise ValueError(f"Unsupported metadata type: {metadata_type}")
 
 
@@ -92,17 +224,42 @@ def merge_metadata_values(
                 raise ValueError(
                     f"Unknown metadata key '{key}'. Declare it in metadata when creating the store."
                 )
-            _validate_metadata_value_type(key, value, metadata_schema[key])
-            merged[key] = value
+            merged[key] = _normalize_metadata_value(
+                key,
+                value,
+                metadata_schema[key],
+            )
 
     return merged
 
 
-def _validate_metadata_value_type(
-    key: str, value: Any, metadata_type: MetadataType, *, context: str = "metadata"
-) -> None:
+def _normalize_metadata_value(
+    key: str,
+    value: Any,
+    metadata_type: MetadataType,
+    *,
+    context: str = "metadata",
+) -> MetadataValue:
     if value is None:
-        return
+        return None
+
+    if isinstance(metadata_type, MetadataFloatVectorType):
+        if not isinstance(value, (list, tuple)):
+            raise ValueError(
+                f"Invalid value for {context} '{key}': expected list[float] with length {metadata_type.dimension}, got {type(value).__name__}"
+            )
+        if len(value) != metadata_type.dimension:
+            raise ValueError(
+                f"Invalid value for {context} '{key}': expected list[float] with length {metadata_type.dimension}, got length {len(value)}"
+            )
+        normalized: list[float] = []
+        for item in value:
+            if isinstance(item, bool) or not isinstance(item, (int, float)):
+                raise ValueError(
+                    f"Invalid value for {context} '{key}': expected list[float], got element of type {type(item).__name__}"
+                )
+            normalized.append(float(item))
+        return normalized
 
     if metadata_type is str:
         ok = isinstance(value, str)
@@ -121,13 +278,31 @@ def _validate_metadata_value_type(
         raise ValueError(
             f"Invalid value for {context} '{key}': expected {metadata_type.__name__}, got {type(value).__name__}"
         )
+    return cast(MetadataValue, value)
+
+
+def coerce_metadata_value_for_output(
+    key: str,
+    value: Any,
+    metadata_type: MetadataType,
+) -> MetadataValue:
+    return _normalize_metadata_value(
+        key,
+        value,
+        metadata_type,
+        context="retrieved metadata",
+    )
+
+
+def metadata_type_supports_filters(metadata_type: MetadataType) -> bool:
+    return not isinstance(metadata_type, MetadataFloatVectorType)
 
 
 @dataclass(frozen=True)
 class FilterComparison:
     column: str
     operator: str
-    value: MetadataValue | list[MetadataScalar]
+    value: MetadataFilterValue | list[MetadataScalar]
 
 
 @dataclass(frozen=True)
@@ -244,7 +419,7 @@ def _parse_filter_mapping_node(
     raise ValueError(f"Unknown filter node type '{node_type}'")
 
 
-def _parse_filter_scalar_value(value: Any, *, allow_null: bool) -> MetadataValue:
+def _parse_filter_scalar_value(value: Any, *, allow_null: bool) -> MetadataFilterValue:
     if value is None:
         if allow_null:
             return None
@@ -363,7 +538,7 @@ class _FilterParser:
             raise ValueError("NULL is not allowed inside IN (...) lists")
         return value
 
-    def _parse_literal_value(self) -> MetadataValue:
+    def _parse_literal_value(self) -> MetadataFilterValue:
         token = self._peek()
         if token.kind == "STRING":
             self._idx += 1
@@ -512,7 +687,7 @@ def _emit_sql(node: FilterNode) -> str:
         values_sql = ", ".join(_sql_literal_scalar(value) for value in values)
         return f"{column} NOT IN ({values_sql})"
 
-    value = cast(MetadataValue, node.value)
+    value = cast(MetadataFilterValue, node.value)
     if value is None and node.operator == "eq":
         return f"{column} IS NULL"
     if value is None and node.operator == "ne":
@@ -602,7 +777,7 @@ def _sql_literal_scalar(value: MetadataScalar) -> str:
     return f"'{escaped}'"
 
 
-def _sql_literal(value: MetadataValue) -> str:
+def _sql_literal(value: MetadataFilterValue) -> str:
     if value is None:
         return "NULL"
     return _sql_literal_scalar(value)

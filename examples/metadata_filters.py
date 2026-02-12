@@ -1,18 +1,42 @@
 """Example: metadata-aware insertion and retrieval filtering."""
 
+from typing import Annotated
+
 from raghilda.store import DuckDBStore, IndexType
 from raghilda.document import MarkdownDocument
 from raghilda.chunker import MarkdownChunker
 
 
+class MetadataSpec:
+    tenant: str
+    topic: str
+    priority: int
+
+
+# All supported schema declaration styles:
+#
+# 1) Dict with scalar Python types
+SCHEMA_DICT = {
+    "tenant": str,
+    "topic": str,
+    "priority": int,
+}
+#
+# 2) Class annotations
+SCHEMA_CLASS = MetadataSpec
+#
+# 3) DuckDB-only fixed-size vectors
+SCHEMA_DUCKDB_WITH_VECTOR = {
+    "tenant": str,
+    "topic": str,
+    "priority": int,
+    "embedding25": Annotated[list[float], 25],
+}
+
 store = DuckDBStore.create(
     location=":memory:",
     embed=None,
-    metadata={
-        "tenant": str,
-        "topic": str,
-        "priority": int,
-    },
+    metadata=SCHEMA_CLASS,
 )
 
 chunker = MarkdownChunker()

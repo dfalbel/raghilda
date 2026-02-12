@@ -32,6 +32,7 @@ from ._embedding import (
 )
 from ._metadata import (
     MetadataFilter,
+    MetadataSchemaSpec,
     MetadataType,
     MetadataValue,
     compile_filter_to_chroma_where,
@@ -317,7 +318,7 @@ class ChromaDBStore(BaseStore):
         title: Optional[str] = None,
         embed: Optional[ChromaEmbedding] = None,
         collection_metadata: Optional[dict[str, Any]] = None,
-        metadata: Optional[Mapping[str, type[Any]]] = None,
+        metadata: Optional[MetadataSchemaSpec] = None,
         client: Any = None,
     ):
         """Create a new ChromaDB store.
@@ -360,6 +361,7 @@ class ChromaDBStore(BaseStore):
         metadata_schema = normalize_metadata_schema(
             metadata=metadata,
             reserved_columns=_RESERVED_METADATA_COLUMNS,
+            allow_vector_types=False,
         )
 
         if client is None:
@@ -441,7 +443,8 @@ class ChromaDBStore(BaseStore):
         metadata_schema: dict[str, MetadataType] = {}
         if metadata.get(_METADATA_SCHEMA_KEY) is not None:
             metadata_schema = metadata_schema_from_json_dict(
-                json.loads(metadata[_METADATA_SCHEMA_KEY])
+                json.loads(metadata[_METADATA_SCHEMA_KEY]),
+                allow_vector_types=False,
             )
 
         return ChromaDBStore(

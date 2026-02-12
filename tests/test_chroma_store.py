@@ -1,5 +1,6 @@
 import pytest
 import socket
+from typing import Annotated
 
 pytest.importorskip("chromadb")
 
@@ -231,6 +232,36 @@ def test_insert_and_retrieve_with_metadata_filter():
         assert chunk.metadata is not None
         assert chunk.metadata.get("tenant") == "docs"
         assert chunk.metadata.get("topic") == "intro"
+
+
+def test_create_with_metadata_schema_class_annotations():
+    class MetadataSpec:
+        tenant: str
+        topic: str
+
+    store = ChromaDBStore.create(
+        location=":memory:",
+        embed=DummyEmbeddingFunction(),
+        name="test_metadata_schema_class",
+        overwrite=True,
+        metadata=MetadataSpec,
+    )
+
+    assert store.metadata.metadata_schema == {
+        "tenant": str,
+        "topic": str,
+    }
+
+
+def test_create_rejects_vector_metadata_annotations():
+    with pytest.raises(ValueError, match="Vector metadata types are not supported"):
+        ChromaDBStore.create(
+            location=":memory:",
+            embed=DummyEmbeddingFunction(),
+            name="test_metadata_schema_vector_reject",
+            overwrite=True,
+            metadata={"embedding25": Annotated[list[float], 25]},
+        )
 
 
 def test_ingest_with_generator():

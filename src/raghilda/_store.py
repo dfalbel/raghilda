@@ -19,10 +19,13 @@ from tqdm import tqdm
 from ._deoverlap import deoverlap_chunks
 from ._metadata import (
     MetadataFilter,
+    MetadataSchemaSpec,
     MetadataType,
     MetadataValue,
+    coerce_metadata_value_for_output,
     compile_filter_to_sql,
     duckdb_sql_type_for_metadata_type,
+    metadata_type_supports_filters,
     metadata_schema_from_json_dict,
     metadata_schema_to_json_dict,
     merge_metadata_values,
@@ -303,7 +306,8 @@ class DuckDBStore(BaseStore):
         metadata_schema: dict[str, MetadataType] = {}
         if metadata_schema_json is not None:
             metadata_schema = metadata_schema_from_json_dict(
-                json.loads(metadata_schema_json)
+                json.loads(metadata_schema_json),
+                allow_vector_types=True,
             )
 
         metadata = DuckDBStoreMetadata(
@@ -322,7 +326,7 @@ class DuckDBStore(BaseStore):
         overwrite: bool = False,
         name: Optional[str] = None,
         title: Optional[str] = None,
-        metadata: Optional[Mapping[str, type[Any]]] = None,
+        metadata: Optional[MetadataSchemaSpec] = None,
     ):
         """Create a new DuckDB store.
 
@@ -360,6 +364,7 @@ class DuckDBStore(BaseStore):
         metadata_schema = normalize_metadata_schema(
             metadata=metadata,
             reserved_columns=_RESERVED_METADATA_COLUMNS,
+            allow_vector_types=True,
         )
 
         if embed is None:
@@ -829,11 +834,14 @@ class DuckDBStore(BaseStore):
         for chunk in results:
             chunk_dict = dict(zip(columns, chunk))
             name, value = chunk_dict.pop("metric_name"), chunk_dict.pop("metric_value")
-            metadata_values = {
-                key: chunk_dict.pop(key)
-                for key in self.metadata.metadata_schema
-                if key in chunk_dict
-            }
+            metadata_values: dict[str, MetadataValue] = {}
+            for key, metadata_type in self.metadata.metadata_schema.items():
+                if key in chunk_dict:
+                    metadata_values[key] = coerce_metadata_value_for_output(
+                        key,
+                        chunk_dict.pop(key),
+                        metadata_type,
+                    )
             chunk_dict["metrics"] = [Metric(name, value)]
             chunk_dict["metadata"] = metadata_values
             output.append(RetrievedDuckDBMarkdownChunk(**chunk_dict))
@@ -952,11 +960,14 @@ class DuckDBStore(BaseStore):
         for chunk in results:
             chunk_dict = dict(zip(columns, chunk))
             name, value = chunk_dict.pop("metric_name"), chunk_dict.pop("metric_value")
-            metadata_values = {
-                key: chunk_dict.pop(key)
-                for key in self.metadata.metadata_schema
-                if key in chunk_dict
-            }
+            metadata_values: dict[str, MetadataValue] = {}
+            for key, metadata_type in self.metadata.metadata_schema.items():
+                if key in chunk_dict:
+                    metadata_values[key] = coerce_metadata_value_for_output(
+                        key,
+                        chunk_dict.pop(key),
+                        metadata_type,
+                    )
             chunk_dict["metrics"] = [Metric(name, value)]
             chunk_dict["metadata"] = metadata_values
             output.append(RetrievedDuckDBMarkdownChunk(**chunk_dict))
@@ -1043,7 +1054,12 @@ class DuckDBStore(BaseStore):
         return result[0]
 
     def _filterable_columns(self) -> set[str]:
-        return _FILTERABLE_BASE_COLUMNS | set(self.metadata.metadata_schema)
+        filterable_metadata_columns = {
+            key
+            for key, metadata_type in self.metadata.metadata_schema.items()
+            if metadata_type_supports_filters(metadata_type)
+        }
+        return _FILTERABLE_BASE_COLUMNS | filterable_metadata_columns
 
 
 def _metadata_select_clause(

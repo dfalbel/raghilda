@@ -7,12 +7,24 @@ RagHilda stores can now keep user-defined metadata per chunk and filter retrieva
 
 ## 1. Declare Metadata Columns At Store Creation
 
-Declare the metadata schema once when creating the store:
+You can declare metadata schema types in three ways:
+
+1. A dict with Python scalar types
+2. A class with type annotations
+3. `Annotated[list[float], N]` for fixed-size vectors (DuckDB only)
 
 ```{python}
 #| eval: false
+from typing import Annotated
 from raghilda.store import DuckDBStore
 
+class MetadataSpec:
+    tenant: str
+    topic: str
+    priority: int
+    is_public: bool
+
+# 1) Dict with Python scalar types
 store = DuckDBStore.create(
     location="docs.duckdb",
     embed=None,
@@ -23,7 +35,26 @@ store = DuckDBStore.create(
         "is_public": bool,
     },
 )
+
+# 2) Class annotations
+store = DuckDBStore.create(
+    location="docs.duckdb",
+    embed=None,
+    metadata=MetadataSpec,
+)
+
+# 3) DuckDB fixed-size vector metadata
+store = DuckDBStore.create(
+    location="docs.duckdb",
+    embed=None,
+    metadata={
+        "tenant": str,
+        "embedding25": Annotated[list[float], 25],
+    },
+)
 ```
+
+`ChromaDBStore` and `OpenAIStore` support scalar metadata types and class annotations, but reject vector metadata types.
 
 ## 2. Add Metadata During Insertion
 
