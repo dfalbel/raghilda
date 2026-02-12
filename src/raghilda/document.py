@@ -38,15 +38,6 @@ class Document:
     chunks: Optional[list[Chunk]] = None
     attributes: Optional[dict[str, Any]] = None
 
-    @property
-    def metadata(self) -> Optional[dict[str, Any]]:
-        """Backward-compatible alias for attributes."""
-        return self.attributes
-
-    @metadata.setter
-    def metadata(self, value: Optional[dict[str, Any]]) -> None:
-        self.attributes = value
-
     @classmethod
     def from_any(cls, doc: Union[DocumentLike, IntoDocument]) -> "Document":
         """Convert any document-like or IntoDocument object to a raghilda Document.
@@ -79,8 +70,6 @@ class Document:
                 chunks = [Chunk.from_any(c) for c in doc.chunks]
             doc_id = getattr(doc, "id", None) or _generate_doc_id()
             raw_attributes = getattr(doc, "attributes", None)
-            if raw_attributes is None:
-                raw_attributes = getattr(doc, "metadata", None)
             return cls(
                 content=doc.content,
                 id=doc_id,

@@ -213,17 +213,9 @@ def duckdb_sql_type_for_metadata_type(metadata_type: MetadataType) -> str:
 
 def merge_metadata_values(
     *,
-    attributes_schema: Optional[Mapping[str, MetadataType]] = None,
-    metadata_schema: Optional[Mapping[str, MetadataType]] = None,
+    attributes_schema: Mapping[str, MetadataType],
     sources: Iterable[Optional[Mapping[str, Any]]],
 ) -> dict[str, MetadataValue]:
-    if attributes_schema is None:
-        attributes_schema = metadata_schema
-    elif metadata_schema is not None:
-        raise ValueError("Use either attributes_schema or metadata_schema, not both.")
-    if attributes_schema is None:
-        raise ValueError("attributes_schema is required.")
-
     merged: dict[str, MetadataValue] = {key: None for key in attributes_schema}
 
     for source in sources:
@@ -407,11 +399,9 @@ def _parse_filter_mapping_node(
 
     if node_type in {"eq", "ne", "gt", "gte", "lt", "lte", "in", "nin"}:
         column = node.get("key")
-        if column is None:
-            column = node.get("column")
         if not isinstance(column, str) or not column:
             raise ValueError(
-                f"Comparison filter '{node_type}' must include string 'key' (or 'column')"
+                f"Comparison filter '{node_type}' must include string 'key'"
             )
         _validate_allowed_filter_column(column, allowed_columns)
 

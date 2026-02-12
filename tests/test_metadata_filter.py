@@ -128,7 +128,7 @@ def test_compile_filter_to_openai_filters_from_mapping_ast():
         {
             "type": "or",
             "filters": [
-                {"type": "eq", "column": "tenant", "value": "docs"},
+                {"type": "eq", "key": "tenant", "value": "docs"},
                 {"type": "gt", "key": "score", "value": 0.9},
             ],
         },

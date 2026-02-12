@@ -37,15 +37,6 @@ class Chunk:
     context: Optional[str] = None
     attributes: Optional[dict[str, Any]] = None
 
-    @property
-    def metadata(self) -> Optional[dict[str, Any]]:
-        """Backward-compatible alias for attributes."""
-        return self.attributes
-
-    @metadata.setter
-    def metadata(self, value: Optional[dict[str, Any]]) -> None:
-        self.attributes = value
-
     @classmethod
     def from_any(cls, chunk: Union[ChunkLike, IntoChunk]) -> "Chunk":
         """Convert any chunk-like or IntoChunk object to a raghilda Chunk.
@@ -74,8 +65,6 @@ class Chunk:
             return result
         elif isinstance(chunk, ChunkLike):
             raw_attributes = getattr(chunk, "attributes", None)
-            if raw_attributes is None:
-                raw_attributes = getattr(chunk, "metadata", None)
             return cls(
                 text=chunk.text,
                 start_index=chunk.start_index,
