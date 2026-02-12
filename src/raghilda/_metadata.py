@@ -424,6 +424,7 @@ def _parse_filter_mapping_node(
             return FilterComparison(column=column, operator=node_type, value=value_list)
 
         value = _parse_filter_scalar_value(raw_value, allow_null=True)
+        _validate_null_comparison_operator(operator=node_type, value=value)
         return FilterComparison(column=column, operator=node_type, value=value)
 
     raise ValueError(f"Unknown filter node type '{node_type}'")
@@ -452,6 +453,13 @@ def _parse_filter_list_value(value: Any) -> list[MetadataScalar]:
         assert item_value is not None
         parsed.append(item_value)
     return parsed
+
+
+def _validate_null_comparison_operator(
+    *, operator: str, value: MetadataFilterValue
+) -> None:
+    if value is None and operator not in {"eq", "ne"}:
+        raise ValueError("NULL is only allowed with = and != operators")
 
 
 def _validate_allowed_filter_column(
@@ -531,6 +539,7 @@ class _FilterParser:
         }
         operator = op_map[token.value]
         value = self._parse_literal_value()
+        _validate_null_comparison_operator(operator=operator, value=value)
         return FilterComparison(column=column, operator=operator, value=value)
 
     def _parse_literal_list(self) -> list[MetadataScalar]:

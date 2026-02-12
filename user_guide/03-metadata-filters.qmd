@@ -120,10 +120,11 @@ Supported operators:
 - `=`, `!=`, `>`, `>=`, `<`, `<=`
 - `IN (...)`, `NOT IN (...)`
 - `AND`, `OR`, parentheses
-- `NULL` comparisons through `= NULL` / `!= NULL`
+- `NULL` comparisons through `= NULL` / `!= NULL` (DuckDB only)
 
 ## Notes by Backend
 
 - `DuckDBStore`: attribute columns are real table columns and filter strings compile to SQL `WHERE` clauses.
 - `ChromaDBStore`: the same filter string compiles to Chroma `where` filters.
 - `OpenAIStore`: attributes are stored as file attributes; store-level metadata stays on the vector store resource.
+- `ChromaDBStore` and `OpenAIStore` do not support `NULL` in `attributes_filter`.

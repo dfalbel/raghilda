@@ -286,9 +286,25 @@ class DuckDBStore(BaseStore):
         con = duckdb.connect(database=location, read_only=read_only)
         _check_is_raghilda_con(con)
 
-        row = con.execute(
-            "SELECT name, title, embed_config, metadata_schema_json FROM metadata"
-        ).fetchone()
+        metadata_columns = {
+            row[1] for row in con.execute("PRAGMA table_info('metadata')").fetchall()
+        }
+        has_schema_column = "metadata_schema_json" in metadata_columns
+
+        if has_schema_column:
+            row = con.execute(
+                "SELECT name, title, embed_config, metadata_schema_json FROM metadata"
+            ).fetchone()
+        else:
+            legacy_row = con.execute(
+                "SELECT name, title, embed_config FROM metadata"
+            ).fetchone()
+            row = (
+                None
+                if legacy_row is None
+                else (legacy_row[0], legacy_row[1], legacy_row[2], None)
+            )
+
         if row is None:
             raise ValueError("No metadata found in the database")
 

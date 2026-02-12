@@ -23,6 +23,22 @@ def test_compile_filter_to_sql_null_via_equality():
     assert sql == '"tenant" IS NULL'
 
 
+def test_compile_filter_to_sql_rejects_null_with_inequality_operator():
+    with pytest.raises(ValueError, match="NULL is only allowed with = and !="):
+        compile_filter_to_sql(
+            "priority > NULL",
+            allowed_columns={"priority"},
+        )
+
+
+def test_compile_filter_to_sql_rejects_null_with_inequality_operator_mapping_ast():
+    with pytest.raises(ValueError, match="NULL is only allowed with = and !="):
+        compile_filter_to_sql(
+            {"type": "gt", "key": "priority", "value": None},
+            allowed_columns={"priority"},
+        )
+
+
 def test_compile_filter_to_chroma_where():
     where = compile_filter_to_chroma_where(
         "tenant = 'docs' AND priority IN (1, 2, 3)",
@@ -48,6 +64,22 @@ def test_compile_filter_to_openai_filters():
             {"type": "gte", "key": "score", "value": 0.75},
         ],
     }
+
+
+def test_compile_filter_to_chroma_where_rejects_null():
+    with pytest.raises(ValueError, match="NULL is not supported in Chroma"):
+        compile_filter_to_chroma_where(
+            "tenant = NULL",
+            allowed_columns={"tenant"},
+        )
+
+
+def test_compile_filter_to_openai_filters_rejects_null():
+    with pytest.raises(ValueError, match="NULL is not supported in OpenAI"):
+        compile_filter_to_openai_filters(
+            "tenant = NULL",
+            allowed_columns={"tenant"},
+        )
 
 
 def test_compile_filter_rejects_unknown_column():
