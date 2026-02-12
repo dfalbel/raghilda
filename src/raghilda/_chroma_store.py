@@ -633,8 +633,7 @@ class ChromaDBStore(BaseStore):
             Optional attribute filter as SQL-like string or dict AST.
             Example string: `"tenant = 'docs' AND priority >= 2"`.
         **kwargs
-            Additional arguments passed to ChromaDB's `query()` method,
-            such as `where` for attribute filtering.
+            Additional arguments passed to ChromaDB's `query()` method.
 
         Returns
         -------
