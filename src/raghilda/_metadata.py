@@ -27,17 +27,8 @@ class MetadataFloatVectorType:
 
 MetadataValue = MetadataScalar | list[float] | None
 MetadataType: TypeAlias = MetadataScalarType | MetadataFloatVectorType
-MetadataSchemaSpec: TypeAlias = Mapping[str, Any] | type[Any]
+AttributesSchemaSpec: TypeAlias = Mapping[str, Any] | type[Any]
 MetadataFilter: TypeAlias = str | Mapping[str, Any]
-
-# Preferred attribute terminology aliases.
-AttributeScalar = MetadataScalar
-AttributeFilterValue = MetadataFilterValue
-AttributeScalarType = MetadataScalarType
-AttributeValue = MetadataValue
-AttributeType = MetadataType
-AttributeSchemaSpec = MetadataSchemaSpec
-AttributeFilter = MetadataFilter
 
 _METADATA_SCALAR_TYPE_TO_NAME: dict[MetadataScalarType, str] = {
     str: "str",
@@ -52,7 +43,7 @@ _FLOAT_VECTOR_TYPE_PATTERN = re.compile(r"^float_vector\[(\d+)\]$")
 
 
 def normalize_attributes_schema(
-    attributes: Optional[MetadataSchemaSpec],
+    attributes: Optional[AttributesSchemaSpec],
     *,
     reserved_columns: Iterable[str],
     allow_vector_types: bool = False,
@@ -77,7 +68,7 @@ def normalize_attributes_schema(
 
 
 def _attributes_schema_items(
-    attributes: Optional[MetadataSchemaSpec],
+    attributes: Optional[AttributesSchemaSpec],
 ) -> Mapping[str, Any]:
     if attributes is None:
         return {}
@@ -804,9 +795,3 @@ def _sql_literal(value: MetadataFilterValue) -> str:
 
 def _quote_identifier(identifier: str) -> str:
     return '"' + identifier.replace('"', '""') + '"'
-
-
-# Backward-compatible metadata terminology aliases.
-normalize_metadata_schema = normalize_attributes_schema
-metadata_schema_to_json_dict = attributes_schema_to_json_dict
-metadata_schema_from_json_dict = attributes_schema_from_json_dict

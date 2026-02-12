@@ -32,7 +32,7 @@ from ._embedding import (
 )
 from ._metadata import (
     MetadataFilter,
-    MetadataSchemaSpec,
+    AttributesSchemaSpec,
     MetadataType,
     MetadataValue,
     attributes_schema_from_json_dict,
@@ -318,7 +318,7 @@ class ChromaDBStore(BaseStore):
         title: Optional[str] = None,
         embed: Optional[ChromaEmbedding] = None,
         collection_metadata: Optional[dict[str, Any]] = None,
-        attributes: Optional[MetadataSchemaSpec] = None,
+        attributes: Optional[AttributesSchemaSpec] = None,
         client: Any = None,
     ):
         """Create a new ChromaDB store.

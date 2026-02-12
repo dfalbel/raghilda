@@ -19,7 +19,7 @@ from tqdm import tqdm
 from ._deoverlap import deoverlap_chunks
 from ._metadata import (
     MetadataFilter,
-    MetadataSchemaSpec,
+    AttributesSchemaSpec,
     MetadataType,
     MetadataValue,
     attributes_schema_from_json_dict,
@@ -326,7 +326,7 @@ class DuckDBStore(BaseStore):
         overwrite: bool = False,
         name: Optional[str] = None,
         title: Optional[str] = None,
-        attributes: Optional[MetadataSchemaSpec] = None,
+        attributes: Optional[AttributesSchemaSpec] = None,
     ):
         """Create a new DuckDB store.
 

@@ -7,7 +7,7 @@ from typing import Any, Mapping, Optional, Sequence
 from dataclasses import dataclass
 from ._metadata import (
     MetadataFilter,
-    MetadataSchemaSpec,
+    AttributesSchemaSpec,
     MetadataType,
     MetadataValue,
     attributes_schema_from_json_dict,
@@ -116,7 +116,7 @@ class OpenAIStore(BaseStore):
         base_url: str = "https://api.openai.com/v1",
         api_key: Optional[str] = None,
         *,
-        attributes: Optional[MetadataSchemaSpec] = None,
+        attributes: Optional[AttributesSchemaSpec] = None,
         metadata: Optional[Mapping[str, str]] = None,
         **kwargs,
     ):
@@ -167,7 +167,7 @@ class OpenAIStore(BaseStore):
         base_url: str = "https://api.openai.com/v1",
         api_key: Optional[str] = None,
         *,
-        attributes: Optional[MetadataSchemaSpec] = None,
+        attributes: Optional[AttributesSchemaSpec] = None,
     ):
         """Connect to an existing OpenAI vector store.
 
