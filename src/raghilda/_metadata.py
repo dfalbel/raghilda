@@ -65,29 +65,6 @@ def metadata_schema_from_json_dict(
     return schema
 
 
-def metadata_schema_from_sql_types(
-    metadata_columns: Mapping[str, str],
-) -> dict[str, MetadataType]:
-    schema: dict[str, MetadataType] = {}
-    for key, sql_type in metadata_columns.items():
-        if not isinstance(key, str) or not key:
-            raise ValueError("Metadata column names must be non-empty strings")
-        if not isinstance(sql_type, str) or not sql_type.strip():
-            raise ValueError(
-                f"Metadata type for '{key}' must be a non-empty SQL type string"
-            )
-        category = _sql_type_category(sql_type)
-        if category == "bool":
-            schema[key] = bool
-        elif category == "int":
-            schema[key] = int
-        elif category == "float":
-            schema[key] = float
-        else:
-            schema[key] = str
-    return schema
-
-
 def duckdb_sql_type_for_metadata_type(metadata_type: MetadataType) -> str:
     if metadata_type is str:
         return "VARCHAR"
@@ -144,30 +121,6 @@ def _validate_metadata_value_type(
         raise ValueError(
             f"Invalid value for {context} '{key}': expected {metadata_type.__name__}, got {type(value).__name__}"
         )
-
-
-def _sql_type_category(sql_type: str) -> str:
-    lowered = sql_type.lower().strip()
-    if any(x in lowered for x in ("char", "text", "string", "uuid")):
-        return "str"
-    if "bool" in lowered:
-        return "bool"
-    if any(x in lowered for x in ("tinyint", "smallint", "integer", "bigint", "int")):
-        return "int"
-    if any(
-        x in lowered
-        for x in (
-            "float",
-            "double",
-            "real",
-            "decimal",
-            "numeric",
-        )
-    ):
-        return "float"
-    if any(x in lowered for x in ("date", "time", "timestamp")):
-        return "datetime"
-    return "unknown"
 
 
 @dataclass(frozen=True)

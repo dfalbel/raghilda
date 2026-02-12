@@ -11,14 +11,12 @@ from ._metadata import (
     MetadataValue,
     compile_filter_to_openai_filters,
     metadata_schema_from_json_dict,
-    metadata_schema_from_sql_types,
     metadata_schema_to_json_dict,
     merge_metadata_values,
     normalize_metadata_schema,
 )
 
 _METADATA_SCHEMA_KEY = "raghilda_metadata_schema_json"
-_LEGACY_METADATA_COLUMNS_KEY = "raghilda_metadata_columns_json"
 
 
 @dataclass
@@ -199,10 +197,6 @@ class OpenAIStore(BaseStore):
         if not resolved_metadata and store_metadata.get(_METADATA_SCHEMA_KEY):
             resolved_metadata = metadata_schema_from_json_dict(
                 json.loads(store_metadata[_METADATA_SCHEMA_KEY])
-            )
-        elif not resolved_metadata and store_metadata.get(_LEGACY_METADATA_COLUMNS_KEY):
-            resolved_metadata = metadata_schema_from_sql_types(
-                json.loads(store_metadata[_LEGACY_METADATA_COLUMNS_KEY])
             )
 
         return OpenAIStore(

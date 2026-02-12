@@ -24,7 +24,6 @@ from ._metadata import (
     compile_filter_to_sql,
     duckdb_sql_type_for_metadata_type,
     metadata_schema_from_json_dict,
-    metadata_schema_from_sql_types,
     metadata_schema_to_json_dict,
     merge_metadata_values,
     normalize_metadata_schema,
@@ -284,28 +283,13 @@ class DuckDBStore(BaseStore):
         con = duckdb.connect(database=location, read_only=read_only)
         _check_is_raghilda_con(con)
 
-        metadata_columns_info = {
-            row[1] for row in con.execute("PRAGMA table_info('metadata')").fetchall()
-        }
-
-        select_cols = ["name", "title", "embed_config"]
-        has_metadata_schema = "metadata_schema_json" in metadata_columns_info
-        has_metadata_columns = "metadata_columns_json" in metadata_columns_info
-        has_metadata_defaults = "metadata_defaults_json" in metadata_columns_info
-        if has_metadata_schema:
-            select_cols.append("metadata_schema_json")
-        if has_metadata_columns:
-            select_cols.append("metadata_columns_json")
-        if has_metadata_defaults:
-            select_cols.append("metadata_defaults_json")
-
-        row = con.execute(f"SELECT {', '.join(select_cols)} FROM metadata").fetchone()
+        row = con.execute(
+            "SELECT name, title, embed_config, metadata_schema_json FROM metadata"
+        ).fetchone()
         if row is None:
             raise ValueError("No metadata found in the database")
-        row_map = dict(zip(select_cols, row))
-        name = row_map["name"]
-        title = row_map["title"]
-        embed_config_json = row_map["embed_config"]
+
+        name, title, embed_config_json, metadata_schema_json = row
 
         # Restore embedding provider from config
         embed = None
@@ -317,13 +301,9 @@ class DuckDBStore(BaseStore):
                 logger.warning(f"Could not restore embedding provider: {e}")
 
         metadata_schema: dict[str, MetadataType] = {}
-        if has_metadata_schema and row_map.get("metadata_schema_json") is not None:
+        if metadata_schema_json is not None:
             metadata_schema = metadata_schema_from_json_dict(
-                json.loads(row_map["metadata_schema_json"])
-            )
-        elif has_metadata_columns and row_map.get("metadata_columns_json") is not None:
-            metadata_schema = metadata_schema_from_sql_types(
-                json.loads(row_map["metadata_columns_json"])
+                json.loads(metadata_schema_json)
             )
 
         metadata = DuckDBStoreMetadata(

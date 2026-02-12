@@ -36,7 +36,6 @@ from ._metadata import (
     MetadataValue,
     compile_filter_to_chroma_where,
     metadata_schema_from_json_dict,
-    metadata_schema_from_sql_types,
     metadata_schema_to_json_dict,
     merge_metadata_values,
     normalize_metadata_schema,
@@ -52,7 +51,6 @@ if TYPE_CHECKING:
 
 _METADATA_TITLE_KEY = "raghilda_title"
 _METADATA_SCHEMA_KEY = "raghilda_metadata_schema_json"
-_LEGACY_METADATA_COLUMNS_KEY = "raghilda_metadata_columns_json"
 _ADAPTER_NAME = "raghilda_embedding_adapter"
 
 _RESERVED_METADATA_COLUMNS = {
@@ -444,10 +442,6 @@ class ChromaDBStore(BaseStore):
         if metadata.get(_METADATA_SCHEMA_KEY) is not None:
             metadata_schema = metadata_schema_from_json_dict(
                 json.loads(metadata[_METADATA_SCHEMA_KEY])
-            )
-        elif metadata.get(_LEGACY_METADATA_COLUMNS_KEY) is not None:
-            metadata_schema = metadata_schema_from_sql_types(
-                json.loads(metadata[_LEGACY_METADATA_COLUMNS_KEY])
             )
 
         return ChromaDBStore(
