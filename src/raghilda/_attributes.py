@@ -588,7 +588,7 @@ def merge_attribute_values(
         if value is _MISSING:
             if spec.required:
                 raise ValueError(
-                    f"Missing required attribute '{key}'. Provide a value in document, insert call, or chunk attributes."
+                    f"Missing required attribute '{key}'. Provide a value in document or chunk attributes."
                 )
             value = _copy_attribute_default(spec.default)
         result[key] = cast(AttributeValue, value)

@@ -262,8 +262,6 @@ class OpenAIStore(BaseStore):
     def insert(
         self,
         document: Document,
-        *,
-        attributes: Optional[Mapping[str, AttributeValue]] = None,
     ) -> None:
         # Upload the document content as a file to the vector store
         # create a temporary file, write the content to it, and upload it
@@ -279,7 +277,7 @@ class OpenAIStore(BaseStore):
 
         resolved_attributes = merge_attribute_values(
             attributes_spec=self.attributes_spec,
-            sources=[document.attributes, attributes],
+            sources=[document.attributes],
         )
         file_attributes = _normalize_openai_attributes(resolved_attributes)
 

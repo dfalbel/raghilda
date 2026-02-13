@@ -98,7 +98,7 @@ store.insert(doc)
 ```
 
 Chunk attributes override document attributes for that chunk only.
-Required attributes must always be provided (from document-level, insert-level, or chunk-level values).
+Required attributes must always be provided (from document-level or chunk-level values).
 Optional attributes use their declared defaults.
 
 ## 3. Filter Retrieval With `attributes_filter`

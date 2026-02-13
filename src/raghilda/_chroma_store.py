@@ -10,7 +10,6 @@ from typing import (
     Any,
     Callable,
     Iterable,
-    Mapping,
     Optional,
     Sequence,
     TYPE_CHECKING,
@@ -36,7 +35,6 @@ from ._attributes import (
     AttributesSchemaSpec,
     AttributeSpec,
     AttributeType,
-    AttributeValue,
     attributes_spec_from_json_dict,
     attributes_spec_to_json_dict,
     compile_filter_to_chroma_where,
@@ -477,8 +475,6 @@ class ChromaDBStore(BaseStore):
     def insert(
         self,
         document: Document,
-        *,
-        attributes: Optional[Mapping[str, AttributeValue]] = None,
     ) -> None:
         if not isinstance(document, MarkdownDocument):
             raise ValueError("Only MarkdownDocument is supported for ChromaDBStore")
@@ -492,7 +488,7 @@ class ChromaDBStore(BaseStore):
         for idx, chunk in enumerate(document.chunks):
             resolved_attributes = merge_attribute_values(
                 attributes_spec=self.metadata.attributes_spec,
-                sources=[document.attributes, attributes, chunk.attributes],
+                sources=[document.attributes, chunk.attributes],
             )
             ids.append(f"{document.id}:{idx}")
             chunk_record = {

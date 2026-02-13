@@ -173,8 +173,6 @@ class BaseStore(ABC):
     def insert(
         self,
         document: Document,
-        *,
-        attributes: Optional[Mapping[str, AttributeValue]] = None,
     ) -> None:
         """Insert a document into the store.
 
@@ -487,11 +485,9 @@ class DuckDBStore(BaseStore):
     def insert(
         self,
         document: Document,
-        *,
-        attributes: Optional[Mapping[str, AttributeValue]] = None,
     ) -> None:
         if isinstance(document, MarkdownDocument):
-            self._insert_chunked_document(document, attributes=attributes)
+            self._insert_chunked_document(document)
         else:
             raise NotImplementedError(
                 f"Insert not implemented for type {type(document)}"
@@ -600,8 +596,6 @@ class DuckDBStore(BaseStore):
     def _insert_chunked_document(
         self,
         chunked_doc: MarkdownDocument,
-        *,
-        attributes: Optional[Mapping[str, AttributeValue]] = None,
     ) -> None:
         # Document should be chunked for insertion
         assert chunked_doc.chunks is not None
@@ -619,7 +613,7 @@ class DuckDBStore(BaseStore):
             resolved_chunk_attributes.append(
                 merge_attribute_values(
                     attributes_spec=self.metadata.attributes_spec,
-                    sources=[chunked_doc.attributes, attributes, chunk_attributes],
+                    sources=[chunked_doc.attributes, chunk_attributes],
                 )
             )
 
