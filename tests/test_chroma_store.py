@@ -235,16 +235,16 @@ def test_insert_and_retrieve_with_attributes_filter():
 
 
 def test_create_with_attributes_schema_class_annotations():
-    class MetadataSpec:
+    class AttributesSpec:
         tenant: str
         topic: str
 
     store = ChromaDBStore.create(
         location=":memory:",
         embed=DummyEmbeddingFunction(),
-        name="test_metadata_schema_class",
+        name="test_attributes_schema_class",
         overwrite=True,
-        attributes=MetadataSpec,
+        attributes=AttributesSpec,
     )
 
     assert store.metadata.attributes_schema == {
@@ -253,49 +253,49 @@ def test_create_with_attributes_schema_class_annotations():
     }
 
 
-def test_create_rejects_vector_metadata_annotations():
+def test_create_rejects_vector_attributes_annotations():
     with pytest.raises(ValueError, match="Vector attribute types are not supported"):
         ChromaDBStore.create(
             location=":memory:",
             embed=DummyEmbeddingFunction(),
-            name="test_metadata_schema_vector_reject",
+            name="test_attributes_schema_vector_reject",
             overwrite=True,
             attributes={"embedding25": Annotated[list[float], 25]},
         )
 
 
-def test_create_rejects_object_metadata_annotations():
+def test_create_rejects_object_attributes_annotations():
     with pytest.raises(ValueError, match="Object attribute types are not supported"):
         ChromaDBStore.create(
             location=":memory:",
             embed=DummyEmbeddingFunction(),
-            name="test_metadata_schema_object_reject",
+            name="test_attributes_schema_object_reject",
             overwrite=True,
             attributes={"details": {"source": str}},
         )
 
 
-def test_create_rejects_optional_metadata_annotations():
+def test_create_rejects_optional_attributes_annotations():
     with pytest.raises(
         ValueError, match="Optional attribute values are not supported for 'topic'"
     ):
         ChromaDBStore.create(
             location=":memory:",
             embed=DummyEmbeddingFunction(),
-            name="test_metadata_schema_optional_reject",
+            name="test_attributes_schema_optional_reject",
             overwrite=True,
             attributes={"tenant": str, "topic": str | None},
         )
 
 
-def test_create_rejects_defaulted_metadata_annotations():
+def test_create_rejects_defaulted_attributes_annotations():
     with pytest.raises(
         ValueError, match="Optional attribute values are not supported for 'priority'"
     ):
         ChromaDBStore.create(
             location=":memory:",
             embed=DummyEmbeddingFunction(),
-            name="test_metadata_schema_default_reject",
+            name="test_attributes_schema_default_reject",
             overwrite=True,
             attributes={"tenant": str, "priority": (int, 0)},
         )

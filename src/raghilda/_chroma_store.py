@@ -53,7 +53,7 @@ if TYPE_CHECKING:
 
 
 _METADATA_TITLE_KEY = "raghilda_title"
-_METADATA_SCHEMA_KEY = "raghilda_metadata_schema_json"
+_ATTRIBUTES_SCHEMA_METADATA_KEY = "raghilda_metadata_schema_json"
 _ADAPTER_NAME = "raghilda_embedding_adapter"
 
 _RESERVED_METADATA_COLUMNS = {
@@ -386,7 +386,7 @@ class ChromaDBStore(BaseStore):
 
         store_metadata = {
             _METADATA_TITLE_KEY: title,
-            _METADATA_SCHEMA_KEY: json.dumps(
+            _ATTRIBUTES_SCHEMA_METADATA_KEY: json.dumps(
                 attributes_spec_to_json_dict(attributes_spec)
             ),
         }
@@ -452,9 +452,9 @@ class ChromaDBStore(BaseStore):
         metadata = collection.metadata or {}
         title = metadata.get(_METADATA_TITLE_KEY, "Raghilda ChromaDB Store")
         attributes_spec: dict[str, AttributeSpec] = {}
-        if metadata.get(_METADATA_SCHEMA_KEY) is not None:
+        if metadata.get(_ATTRIBUTES_SCHEMA_METADATA_KEY) is not None:
             attributes_spec = attributes_spec_from_json_dict(
-                json.loads(metadata[_METADATA_SCHEMA_KEY]),
+                json.loads(metadata[_ATTRIBUTES_SCHEMA_METADATA_KEY]),
                 allow_vector_types=False,
                 allow_struct_types=False,
                 allow_optional_values=False,
@@ -488,7 +488,7 @@ class ChromaDBStore(BaseStore):
         texts = [chunk.text for chunk in document.chunks]
 
         ids = []
-        metadatas = []
+        chunk_attributes_records = []
         for idx, chunk in enumerate(document.chunks):
             resolved_attributes = merge_attribute_values(
                 attributes_spec=self.metadata.attributes_spec,
@@ -505,12 +505,14 @@ class ChromaDBStore(BaseStore):
                 "origin": document.origin,
             }
             chunk_record.update(resolved_attributes)
-            metadatas.append({k: v for k, v in chunk_record.items() if v is not None})
+            chunk_attributes_records.append(
+                {k: v for k, v in chunk_record.items() if v is not None}
+            )
 
         self.collection.upsert(
             ids=ids,
             documents=texts,
-            metadatas=metadatas,
+            metadatas=chunk_attributes_records,
         )
 
     def ingest(
@@ -665,20 +667,23 @@ class ChromaDBStore(BaseStore):
         )
 
         documents = (results.get("documents") or [[]])[0]
-        metadatas = (results.get("metadatas") or [[]])[0]
+        chunk_attributes_rows = (results.get("metadatas") or [[]])[0]
         distances = (results.get("distances") or [[]])[0]
 
         output: list[RetrievedChromaDBMarkdownChunk] = []
-        for doc_text, metadata, distance in zip(
-            documents, metadatas, distances, strict=False
+        for doc_text, chunk_attributes, distance in zip(
+            documents, chunk_attributes_rows, distances, strict=False
         ):
-            metadata = metadata or {}
+            chunk_attributes = chunk_attributes or {}
             user_attributes = {
-                key: metadata.get(key) for key in self.metadata.attributes_schema
+                key: chunk_attributes.get(key)
+                for key in self.metadata.attributes_schema
             }
-            start_index = int(metadata.get("start_index", 0))
-            end_index = int(metadata.get("end_index", start_index + len(doc_text)))
-            token_count = int(metadata.get("token_count", len(doc_text)))
+            start_index = int(chunk_attributes.get("start_index", 0))
+            end_index = int(
+                chunk_attributes.get("end_index", start_index + len(doc_text))
+            )
+            token_count = int(chunk_attributes.get("token_count", len(doc_text)))
             metrics = []
             if distance is not None:
                 metrics.append(Metric(name="distance", value=distance))
@@ -686,10 +691,10 @@ class ChromaDBStore(BaseStore):
                 text=doc_text,
                 start_index=start_index,
                 end_index=end_index,
-                context=metadata.get("context"),
+                context=chunk_attributes.get("context"),
                 token_count=token_count,
-                doc_id=metadata.get("doc_id"),
-                chunk_id=metadata.get("chunk_id"),
+                doc_id=chunk_attributes.get("doc_id"),
+                chunk_id=chunk_attributes.get("chunk_id"),
                 metrics=metrics,
                 attributes=user_attributes,
             )
@@ -702,11 +707,11 @@ class ChromaDBStore(BaseStore):
 
     def size(self) -> int:
         results = self.collection.get(include=["metadatas"])
-        metadatas = results.get("metadatas") or []
+        chunk_attributes_rows = results.get("metadatas") or []
         doc_ids = {
-            metadata.get("doc_id")
-            for metadata in metadatas
-            if metadata and metadata.get("doc_id")
+            chunk_attributes.get("doc_id")
+            for chunk_attributes in chunk_attributes_rows
+            if chunk_attributes and chunk_attributes.get("doc_id")
         }
         return len(doc_ids)
 

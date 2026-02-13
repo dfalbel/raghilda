@@ -18,7 +18,7 @@ from ._attributes import (
     normalize_attributes_spec,
 )
 
-_METADATA_SCHEMA_KEY = "raghilda_metadata_schema_json"
+_ATTRIBUTES_SCHEMA_METADATA_KEY = "raghilda_metadata_schema_json"
 
 
 @dataclass
@@ -155,7 +155,7 @@ class OpenAIStore(BaseStore):
 
         client = openai.Client(api_key=api_key, base_url=base_url)
         api_vector_store_metadata = dict(metadata or {})
-        api_vector_store_metadata[_METADATA_SCHEMA_KEY] = json.dumps(
+        api_vector_store_metadata[_ATTRIBUTES_SCHEMA_METADATA_KEY] = json.dumps(
             attributes_spec_to_json_dict(attributes_spec)
         )
         kwargs["metadata"] = api_vector_store_metadata
@@ -206,9 +206,11 @@ class OpenAIStore(BaseStore):
             allow_struct_types=False,
             allow_optional_values=False,
         )
-        if not resolved_attributes_spec and store_metadata.get(_METADATA_SCHEMA_KEY):
+        if not resolved_attributes_spec and store_metadata.get(
+            _ATTRIBUTES_SCHEMA_METADATA_KEY
+        ):
             resolved_attributes_spec = attributes_spec_from_json_dict(
-                json.loads(store_metadata[_METADATA_SCHEMA_KEY]),
+                json.loads(store_metadata[_ATTRIBUTES_SCHEMA_METADATA_KEY]),
                 allow_vector_types=False,
                 allow_struct_types=False,
                 allow_optional_values=False,

@@ -140,8 +140,8 @@ class TestDuckDBStore:
             location=":memory:",
             embed=None,
             overwrite=True,
-            name="metadata_schema_db",
-            title="Metadata Schema Store",
+            name="attributes_schema_db",
+            title="Attributes Schema Store",
             attributes={
                 "tenant": str,
                 "priority": int,
@@ -205,8 +205,8 @@ class TestDuckDBStore:
 
         vector = [float(i) for i in range(25)]
         doc = MarkdownDocument(
-            origin="vector-metadata",
-            content="hello vector metadata",
+            origin="vector-attributes",
+            content="hello vector attributes",
             attributes={"tenant": "docs", "embedding25": vector},
         )
         doc.chunks = [
@@ -253,7 +253,7 @@ class TestDuckDBStore:
         )
 
         doc = MarkdownDocument(
-            origin="metadata-test",
+            origin="attributes-test",
             content="alpha beta gamma",
             attributes={"tenant": "docs", "priority": 1},
         )
@@ -490,7 +490,7 @@ class TestDuckDBStore:
         )
 
         doc = MarkdownDocument(
-            origin="metadata-fail",
+            origin="attributes-fail",
             content="hello",
             attributes={"tenant": "docs"},
         )
@@ -533,7 +533,7 @@ class TestDuckDBStore:
             store.insert(doc)
 
     def test_connect_restores_attributes_schema(self, tmp_path):
-        db_path = tmp_path / "metadata-connect.db"
+        db_path = tmp_path / "attributes-connect.db"
         store = DuckDBStore.create(
             location=str(db_path),
             embed=None,
