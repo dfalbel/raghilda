@@ -294,13 +294,13 @@ class DuckDBStore(BaseStore):
         _check_is_raghilda_con(con)
 
         row = con.execute(
-            "SELECT name, title, embed_config, metadata_schema_json FROM metadata"
+            "SELECT name, title, embed_config, attributes_schema_json FROM metadata"
         ).fetchone()
 
         if row is None:
             raise ValueError("No metadata found in the database")
 
-        name, title, embed_config_json, metadata_schema_json = row
+        name, title, embed_config_json, attributes_schema_json = row
 
         # Restore embedding provider from config
         embed = None
@@ -311,10 +311,10 @@ class DuckDBStore(BaseStore):
             except ValueError as e:
                 logger.warning(f"Could not restore embedding provider: {e}")
 
-        if metadata_schema_json is None:
-            raise ValueError("Missing metadata_schema_json in metadata table")
+        if attributes_schema_json is None:
+            raise ValueError("Missing attributes_schema_json in metadata table")
         attributes_spec = attributes_spec_from_json_dict(
-            json.loads(metadata_schema_json),
+            json.loads(attributes_schema_json),
             allow_vector_types=True,
         )
         attributes_schema = {
@@ -394,7 +394,9 @@ class DuckDBStore(BaseStore):
         if embed is not None:
             embed_config_json = json.dumps(embed.get_config())
 
-        metadata_schema_json = json.dumps(attributes_spec_to_json_dict(attributes_spec))
+        attributes_schema_json = json.dumps(
+            attributes_spec_to_json_dict(attributes_spec)
+        )
         attribute_column_defs_sql = _duckdb_attribute_column_defs(
             attributes_schema=attributes_schema,
         )
@@ -412,7 +414,7 @@ class DuckDBStore(BaseStore):
             name VARCHAR,
             title VARCHAR,
             embed_config VARCHAR,
-            metadata_schema_json VARCHAR
+            attributes_schema_json VARCHAR
         );
 
         CREATE OR REPLACE TABLE documents (
@@ -452,14 +454,14 @@ class DuckDBStore(BaseStore):
                 name,
                 title,
                 embed_config,
-                metadata_schema_json
+                attributes_schema_json
             ) VALUES (?, ?, ?, ?)
             """,
             [
                 name,
                 title,
                 embed_config_json,
-                metadata_schema_json,
+                attributes_schema_json,
             ],
         )
 

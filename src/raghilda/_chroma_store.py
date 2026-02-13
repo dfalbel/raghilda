@@ -53,7 +53,7 @@ if TYPE_CHECKING:
 
 
 _METADATA_TITLE_KEY = "raghilda_title"
-_ATTRIBUTES_SCHEMA_METADATA_KEY = "raghilda_metadata_schema_json"
+_ATTRIBUTES_SCHEMA_METADATA_KEY = "raghilda_attributes_schema_json"
 _ADAPTER_NAME = "raghilda_embedding_adapter"
 
 _RESERVED_METADATA_COLUMNS = {

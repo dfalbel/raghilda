@@ -18,7 +18,7 @@ from ._attributes import (
     normalize_attributes_spec,
 )
 
-_ATTRIBUTES_SCHEMA_METADATA_KEY = "raghilda_metadata_schema_json"
+_ATTRIBUTES_SCHEMA_METADATA_KEY = "raghilda_attributes_schema_json"
 
 
 @dataclass

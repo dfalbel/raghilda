@@ -68,7 +68,7 @@ def test_openai_store_create_accepts_class_attributes_schema(monkeypatch):
 
     assert len(client.vector_stores.create_calls) == 1
     schema_json = client.vector_stores.create_calls[0]["metadata"][
-        "raghilda_metadata_schema_json"
+        "raghilda_attributes_schema_json"
     ]
     assert json.loads(schema_json) == {
         "tenant": {"type": "str", "nullable": False, "required": True},
