@@ -222,8 +222,15 @@ class DuckDBStoreMetadata:
     name: str
     title: str
     embed: Optional[EmbeddingProvider]
-    attributes_spec: dict[str, AttributeSpec]
-    attributes_schema: dict[str, AttributeType]
+    attributes: dict[str, AttributeSpec]
+
+    @property
+    def attributes_spec(self) -> dict[str, AttributeSpec]:
+        return self.attributes
+
+    @property
+    def attributes_schema(self) -> dict[str, AttributeType]:
+        return {key: spec.attribute_type for key, spec in self.attributes.items()}
 
 
 class VSSMethod(StrEnum):
@@ -315,16 +322,12 @@ class DuckDBStore(BaseStore):
             json.loads(attributes_schema_json),
             allow_vector_types=True,
         )
-        attributes_schema = {
-            key: spec.attribute_type for key, spec in attributes_spec.items()
-        }
 
         metadata = DuckDBStoreMetadata(
             name=name,
             title=title,
             embed=embed,
-            attributes_spec=attributes_spec,
-            attributes_schema=attributes_schema,
+            attributes=attributes_spec,
         )
 
         return DuckDBStore(con, metadata)
@@ -469,8 +472,7 @@ class DuckDBStore(BaseStore):
                 name=name,
                 title=title,
                 embed=embed,
-                attributes_spec=attributes_spec,
-                attributes_schema=attributes_schema,
+                attributes=attributes_spec,
             ),
         )
 
