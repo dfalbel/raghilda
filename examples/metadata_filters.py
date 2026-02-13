@@ -17,7 +17,7 @@ def show_results(title, chunks):
         print(f"     attributes={chunk.attributes}")
 
 
-class ExampleAttributesSpec:
+class ExampleAttributesSchemaClass:
     tenant: str                 # required
     priority: int = 0           # optional, default 0
     is_public: bool = False     # optional, default False
@@ -27,14 +27,14 @@ class ExampleAttributesSpec:
 # All supported schema declaration styles:
 #
 # 1) Dict with scalar Python types (portable across DuckDB/Chroma/OpenAI today)
-SCHEMA_DICT = {
+EXAMPLE_ATTRIBUTES_SCHEMA_DICT = {
     "tenant": str,
     "topic": str,
     "priority": int,
 }
 #
 # 2) Dict with explicit defaults (optional values)
-SCHEMA_DICT_WITH_DEFAULTS = {
+EXAMPLE_ATTRIBUTES_SCHEMA_DICT_WITH_DEFAULTS = {
     "tenant": str,
     "priority": (int, 0),
     "is_public": (bool, False),
@@ -42,10 +42,10 @@ SCHEMA_DICT_WITH_DEFAULTS = {
 }
 #
 # 3) Class annotations
-SCHEMA_CLASS = ExampleAttributesSpec
+EXAMPLE_ATTRIBUTES_SCHEMA_SIMPLE = ExampleAttributesSchemaClass
 #
 # 4) DuckDB-only fixed-size vectors + JSON-like nested object (DuckDB struct-style)
-SCHEMA_DUCKDB_WITH_VECTOR = {
+EXAMPLE_ATTRIBUTES_SCHEMA_COMPLEX = {
     "tenant": str,
     "topic": str,
     "priority": int,
@@ -60,7 +60,7 @@ SCHEMA_DUCKDB_WITH_VECTOR = {
     },
 }
 
-COMPLEX_ATTRIBUTES_BATCH_FOR_INSERT = [
+EXAMPLE_ATTRIBUTES_VALUES_COMPLEX_BATCH = [
     {
         "tenant": "docs",
         "topic": "guide",
@@ -108,7 +108,7 @@ COMPLEX_ATTRIBUTES_BATCH_FOR_INSERT = [
 store = DuckDBStore.create(
     location=":memory:",
     embed=None,
-    attributes=SCHEMA_CLASS,
+    attributes=EXAMPLE_ATTRIBUTES_SCHEMA_SIMPLE,
 )
 
 chunker = MarkdownChunker()
@@ -146,8 +146,8 @@ show_results(
         top_k=3,
         deoverlap=False,
         attributes_filter="""
-        tenant IN ('docs', 'blog')
-        AND priority IN (5, 10)
+          tenant IN ('docs', 'blog')
+          AND priority IN (5, 10)
         """,
     ),
 )
@@ -171,24 +171,24 @@ print("\n=== Complex Store (Vector + Nested Attributes) ===")
 complex_store = DuckDBStore.create(
     location=":memory:",
     embed=None,
-    attributes=SCHEMA_DUCKDB_WITH_VECTOR,
+    attributes=EXAMPLE_ATTRIBUTES_SCHEMA_COMPLEX,
 )
 
 complex_docs = [
     MarkdownDocument(
         origin="complex-guide.md",
         content="advanced alpha beta with vector and nested attributes",
-        attributes=COMPLEX_ATTRIBUTES_BATCH_FOR_INSERT[0],
+        attributes=EXAMPLE_ATTRIBUTES_VALUES_COMPLEX_BATCH[0],
     ),
     MarkdownDocument(
         origin="complex-notes.md",
         content="beta appears in lower-priority internal notes",
-        attributes=COMPLEX_ATTRIBUTES_BATCH_FOR_INSERT[1],
+        attributes=EXAMPLE_ATTRIBUTES_VALUES_COMPLEX_BATCH[1],
     ),
     MarkdownDocument(
         origin="complex-blog.md",
         content="public beta write-up for external readers",
-        attributes=COMPLEX_ATTRIBUTES_BATCH_FOR_INSERT[2],
+        attributes=EXAMPLE_ATTRIBUTES_VALUES_COMPLEX_BATCH[2],
     ),
 ]
 for doc in complex_docs:
