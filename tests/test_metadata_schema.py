@@ -5,6 +5,7 @@ import pytest
 from raghilda._attributes import (
     MetadataAttributeSpec,
     MetadataFloatVectorType,
+    MetadataStructType,
     attributes_schema_from_json_dict,
     attributes_schema_to_json_dict,
     attributes_spec_from_json_dict,
@@ -95,6 +96,35 @@ def test_attributes_spec_roundtrip_with_vector_annotation():
     encoded = attributes_spec_to_json_dict(spec)
     decoded = attributes_spec_from_json_dict(encoded, allow_vector_types=True)
     assert decoded == spec
+
+
+def test_attributes_schema_roundtrip_with_nested_object_annotation():
+    schema = normalize_attributes_schema(
+        {
+            "tenant": str,
+            "details": {
+                "source": str,
+                "flags": {"is_public": bool},
+            },
+        },
+        reserved_columns=set(),
+        allow_struct_types=True,
+    )
+    assert schema["tenant"] is str
+    assert schema["details"] == MetadataStructType(
+        fields={
+            "source": str,
+            "flags": MetadataStructType(fields={"is_public": bool}),
+        }
+    )
+
+    encoded = attributes_schema_to_json_dict(schema)
+    decoded = attributes_schema_from_json_dict(
+        encoded,
+        allow_vector_types=True,
+        allow_struct_types=True,
+    )
+    assert decoded == schema
 
 
 def test_normalize_attributes_schema_rejects_vector_for_backends_without_support():

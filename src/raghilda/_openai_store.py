@@ -146,6 +146,7 @@ class OpenAIStore(BaseStore):
             attributes=attributes,
             reserved_columns=set(),
             allow_vector_types=False,
+            allow_struct_types=False,
             allow_optional_values=False,
         )
         attributes_schema = {
@@ -202,12 +203,14 @@ class OpenAIStore(BaseStore):
             attributes=attributes,
             reserved_columns=set(),
             allow_vector_types=False,
+            allow_struct_types=False,
             allow_optional_values=False,
         )
         if not resolved_attributes_spec and store_metadata.get(_METADATA_SCHEMA_KEY):
             resolved_attributes_spec = attributes_spec_from_json_dict(
                 json.loads(store_metadata[_METADATA_SCHEMA_KEY]),
                 allow_vector_types=False,
+                allow_struct_types=False,
                 allow_optional_values=False,
             )
         resolved_attributes_schema = {
@@ -238,6 +241,7 @@ class OpenAIStore(BaseStore):
                 attributes=attributes,
                 reserved_columns=set(),
                 allow_vector_types=False,
+                allow_struct_types=False,
                 allow_optional_values=False,
             )
         else:

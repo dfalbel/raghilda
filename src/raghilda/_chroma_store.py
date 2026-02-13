@@ -372,6 +372,7 @@ class ChromaDBStore(BaseStore):
             attributes=attributes,
             reserved_columns=_RESERVED_METADATA_COLUMNS,
             allow_vector_types=False,
+            allow_struct_types=False,
             allow_optional_values=False,
         )
         if client is None:
@@ -455,6 +456,7 @@ class ChromaDBStore(BaseStore):
             attributes_spec = attributes_spec_from_json_dict(
                 json.loads(metadata[_METADATA_SCHEMA_KEY]),
                 allow_vector_types=False,
+                allow_struct_types=False,
                 allow_optional_values=False,
             )
         return ChromaDBStore(

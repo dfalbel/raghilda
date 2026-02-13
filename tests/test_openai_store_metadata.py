@@ -81,6 +81,11 @@ def test_openai_store_create_rejects_vector_attributes_schema():
         OpenAIStore.create(attributes={"embedding25": Annotated[list[float], 25]})
 
 
+def test_openai_store_create_rejects_object_attributes_schema():
+    with pytest.raises(ValueError, match="Object attribute types are not supported"):
+        OpenAIStore.create(attributes={"details": {"source": str}})
+
+
 def test_openai_store_create_rejects_optional_attributes_schema():
     with pytest.raises(
         ValueError, match="Optional attribute values are not supported for 'topic'"

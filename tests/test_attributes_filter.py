@@ -15,6 +15,17 @@ def test_compile_filter_to_sql_with_and_or():
     assert sql == '("tenant" = \'docs\' AND ("priority" >= 2 OR "is_public" = TRUE))'
 
 
+def test_compile_filter_to_sql_with_dot_path_identifier():
+    sql = compile_filter_to_sql(
+        "details.source = 'handbook' AND details.flags.is_public = TRUE",
+        allowed_columns={"details.source", "details.flags.is_public"},
+    )
+    assert sql == (
+        "(struct_extract(\"details\", 'source') = 'handbook' AND "
+        "struct_extract(struct_extract(\"details\", 'flags'), 'is_public') = TRUE)"
+    )
+
+
 def test_compile_filter_to_sql_null_via_is_null():
     sql = compile_filter_to_sql(
         "tenant IS NULL",

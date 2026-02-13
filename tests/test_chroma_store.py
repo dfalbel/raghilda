@@ -264,6 +264,17 @@ def test_create_rejects_vector_metadata_annotations():
         )
 
 
+def test_create_rejects_object_metadata_annotations():
+    with pytest.raises(ValueError, match="Object attribute types are not supported"):
+        ChromaDBStore.create(
+            location=":memory:",
+            embed=DummyEmbeddingFunction(),
+            name="test_metadata_schema_object_reject",
+            overwrite=True,
+            attributes={"details": {"source": str}},
+        )
+
+
 def test_create_rejects_optional_metadata_annotations():
     with pytest.raises(
         ValueError, match="Optional attribute values are not supported for 'topic'"

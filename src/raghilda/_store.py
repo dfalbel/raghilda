@@ -28,8 +28,8 @@ from ._attributes import (
     coerce_attribute_value_for_output,
     compile_filter_to_sql,
     duckdb_sql_type_for_metadata_type,
+    filterable_attribute_paths,
     normalize_attributes_spec,
-    metadata_type_supports_filters,
     merge_metadata_values,
 )
 from ._utils import lazy_map
@@ -1049,11 +1049,9 @@ class DuckDBStore(BaseStore):
         return result[0]
 
     def _filterable_columns(self) -> set[str]:
-        filterable_attribute_columns = {
-            key
-            for key, metadata_type in self.metadata.attributes_schema.items()
-            if metadata_type_supports_filters(metadata_type)
-        }
+        filterable_attribute_columns = filterable_attribute_paths(
+            self.metadata.attributes_schema
+        )
         return _FILTERABLE_BASE_COLUMNS | filterable_attribute_columns
 
 

@@ -325,6 +325,63 @@ class TestDuckDBStore:
         assert len(dict_results) == 1
         assert dict_results[0].text.strip() == "alpha"
 
+    def test_insert_and_retrieve_with_nested_object_attributes_filter(self):
+        store = DuckDBStore.create(
+            location=":memory:",
+            embed=None,
+            overwrite=True,
+            attributes={
+                "tenant": str,
+                "details": {
+                    "source": str,
+                    "flags": {"is_public": bool, "is_internal": bool},
+                },
+            },
+        )
+
+        doc = MarkdownDocument(
+            origin="nested-attributes-test",
+            content="alpha beta gamma",
+            attributes={
+                "tenant": "docs",
+                "details": {
+                    "source": "handbook",
+                    "flags": {"is_public": True, "is_internal": False},
+                },
+            },
+        )
+        doc.chunks = [
+            MarkdownChunk(
+                start_index=0,
+                end_index=5,
+                text="alpha",
+                token_count=5,
+            )
+        ]
+
+        store.insert(doc)
+        store.build_index(DuckDBIndexType.BM25)
+
+        results = store.retrieve(
+            "alpha",
+            top_k=5,
+            deoverlap=False,
+            attributes_filter=(
+                "tenant = 'docs' "
+                "AND details.source = 'handbook' "
+                "AND details.flags.is_public = TRUE"
+            ),
+        )
+        assert len(results) == 1
+        assert results[0].text.strip() == "alpha"
+        assert results[0].attributes == {
+            "tenant": "docs",
+            "details": {
+                "source": "handbook",
+                "flags": {"is_public": True, "is_internal": False},
+            },
+        }
+
     def test_insert_applies_inline_attribute_defaults(self):
         store = DuckDBStore.create(
             location=":memory:",
