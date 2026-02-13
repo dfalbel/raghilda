@@ -325,6 +325,43 @@ class TestDuckDBStore:
         assert len(dict_results) == 1
         assert dict_results[0].text.strip() == "alpha"
 
+    def test_insert_preserves_declared_id_attribute(self):
+        store = DuckDBStore.create(
+            location=":memory:",
+            embed=None,
+            overwrite=True,
+            attributes={
+                "id": str,
+                "tenant": str,
+            },
+        )
+
+        doc = MarkdownDocument(
+            origin="id-attribute-test",
+            content="alpha beta",
+            attributes={"id": "attr-id-1", "tenant": "docs"},
+        )
+        doc.chunks = [
+            MarkdownChunk(
+                start_index=0,
+                end_index=5,
+                text="alpha",
+                token_count=5,
+            )
+        ]
+
+        store.insert(doc)
+        store.build_index(DuckDBIndexType.BM25)
+
+        results = store.retrieve(
+            "alpha",
+            top_k=5,
+            deoverlap=False,
+            attributes_filter="id = 'attr-id-1'",
+        )
+        assert len(results) == 1
+        assert results[0].attributes == {"id": "attr-id-1", "tenant": "docs"}
+
     def test_insert_and_retrieve_with_nested_object_attributes_filter(self):
         store = DuckDBStore.create(
             location=":memory:",

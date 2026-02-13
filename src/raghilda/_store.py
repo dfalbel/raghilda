@@ -643,6 +643,10 @@ class DuckDBStore(BaseStore):
             chunks.drop(columns=["attributes"], inplace=True)
         if "metadata" in chunks.columns:
             chunks.drop(columns=["metadata"], inplace=True)
+        # Some chunk implementations expose an `id` field; drop that temporary
+        # source field before assigning declared user attributes.
+        if "id" in chunks.columns:
+            chunks.drop(columns=["id"], inplace=True)
 
         for column in self.metadata.attributes_schema:
             chunks[column] = [row[column] for row in resolved_chunk_attributes]
@@ -656,9 +660,6 @@ class DuckDBStore(BaseStore):
                 columns={"content": "text", "id": "doc_id"}, inplace=True
             )  # content -> text
             chunks["doc_id"] = [doc["doc_id"][0]] * len(chunks)
-            chunks.drop(
-                columns=["id"], inplace=True, errors="ignore"
-            )  # id -> chunk_id (auto). the id here can be discarded
 
             _duckdb_append(cursor, "documents", doc)
             _duckdb_append(cursor, "embeddings", chunks)
