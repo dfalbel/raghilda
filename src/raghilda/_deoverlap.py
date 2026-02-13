@@ -108,7 +108,7 @@ def deoverlap_chunks(
 # Tests for deoverlap_chunks
 def test__deoverlap_chunks_overlapping_same_document():
     """Overlapping chunks from the same document should be merged."""
-    from ._store import RetrievedDuckDBMarkdownChunk
+    from ._duckdb_store import RetrievedDuckDBMarkdownChunk
     from .chunk import Metric
 
     chunks = [
@@ -139,7 +139,7 @@ def test__deoverlap_chunks_overlapping_same_document():
 
 def test__deoverlap_chunks_different_documents():
     """Overlapping ranges from different documents should not be merged."""
-    from ._store import RetrievedDuckDBMarkdownChunk
+    from ._duckdb_store import RetrievedDuckDBMarkdownChunk
     from .chunk import Metric
 
     chunks = [
@@ -166,7 +166,7 @@ def test__deoverlap_chunks_different_documents():
 
 def test__deoverlap_chunks_non_overlapping():
     """Non-overlapping chunks from the same document should not be merged."""
-    from ._store import RetrievedDuckDBMarkdownChunk
+    from ._duckdb_store import RetrievedDuckDBMarkdownChunk
     from .chunk import Metric
 
     chunks = [
@@ -193,7 +193,7 @@ def test__deoverlap_chunks_non_overlapping():
 
 def test__deoverlap_chunks_adjacent_not_merged():
     """Chunks that are adjacent (end == start) should not be merged."""
-    from ._store import RetrievedDuckDBMarkdownChunk
+    from ._duckdb_store import RetrievedDuckDBMarkdownChunk
 
     chunks = [
         RetrievedDuckDBMarkdownChunk(
@@ -225,7 +225,7 @@ def test__deoverlap_chunks_empty():
 
 def test__deoverlap_chunks_single():
     """Single chunk should be returned unchanged."""
-    from ._store import RetrievedDuckDBMarkdownChunk
+    from ._duckdb_store import RetrievedDuckDBMarkdownChunk
     from .chunk import Metric
 
     chunks = [
@@ -245,7 +245,7 @@ def test__deoverlap_chunks_single():
 
 def test__deoverlap_chunks_chain():
     """Multiple chunks that chain together should all be merged."""
-    from ._store import RetrievedDuckDBMarkdownChunk
+    from ._duckdb_store import RetrievedDuckDBMarkdownChunk
     from .chunk import Metric
 
     chunks = [
@@ -284,7 +284,7 @@ def test__deoverlap_chunks_chain():
 
 def test__deoverlap_chunks_reverse_order():
     """Chunks should be sorted before processing."""
-    from ._store import RetrievedDuckDBMarkdownChunk
+    from ._duckdb_store import RetrievedDuckDBMarkdownChunk
     from .chunk import Metric
 
     chunks = [
@@ -315,7 +315,7 @@ def test__deoverlap_chunks_reverse_order():
 
 def test__deoverlap_chunks_fully_contained():
     """A chunk fully contained within another should be merged."""
-    from ._store import RetrievedDuckDBMarkdownChunk
+    from ._duckdb_store import RetrievedDuckDBMarkdownChunk
     from .chunk import Metric
 
     chunks = [

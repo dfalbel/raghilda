@@ -7,7 +7,9 @@ from raghilda.scrape import find_links
 from raghilda.document import MarkdownDocument
 from raghilda.chunk import MarkdownChunk, RetrievedChunk
 from raghilda._attributes import AttributeFloatVectorType
-from raghilda._store import RetrievedDuckDBMarkdownChunk  # internal implementation
+from raghilda._duckdb_store import (
+    RetrievedDuckDBMarkdownChunk,
+)  # internal implementation
 from raghilda.embedding import EmbeddingOpenAI
 
 
