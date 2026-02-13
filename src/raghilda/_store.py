@@ -239,13 +239,9 @@ class VSSMethod(StrEnum):
     NEGATIVE_INNER_PRODUCT = "negative_inner_product"
 
 
-class DuckDBIndexType(StrEnum):
+class IndexType(StrEnum):
     BM25 = "bm25"
     HNSW = "hnsw"
-
-
-# Backward-compatible alias.
-IndexType = DuckDBIndexType
 
 
 class DuckDBStore(BaseStore):
@@ -967,7 +963,8 @@ class DuckDBStore(BaseStore):
         return output
 
     def build_index(
-        self, type: Optional[DuckDBIndexType | list[DuckDBIndexType]] = None
+        self,
+        type: Optional[IndexType | str | list[IndexType | str]] = None,
     ):
         """
         Build the specified index types on the embeddings table.
@@ -975,16 +972,18 @@ class DuckDBStore(BaseStore):
         Parameters
         ----------
         type
-            The type of index to build. Can be a single DuckDBIndexType or a list of DuckDBIndexType.
+            The type of index to build. Can be a single IndexType/string
+            (`"bm25"` or `"hnsw"`) or a list of those values.
             If None, builds both BM25 and HNSW indexes.
         """
         if type is None:
-            type = [DuckDBIndexType.BM25, DuckDBIndexType.HNSW]
+            index_types = [IndexType.BM25, IndexType.HNSW]
+        elif isinstance(type, (IndexType, str)):
+            index_types = [_coerce_index_type(type)]
+        else:
+            index_types = [_coerce_index_type(item) for item in type]
 
-        if isinstance(type, DuckDBIndexType):
-            type = [type]
-
-        if DuckDBIndexType.BM25 in type:
+        if IndexType.BM25 in index_types:
             self.con.execute("INSTALL FTS; LOAD FTS;")
             try:
                 self.con.begin()
@@ -994,7 +993,7 @@ class DuckDBStore(BaseStore):
                 self.con.rollback()
                 raise e
 
-        if DuckDBIndexType.HNSW in type:
+        if IndexType.HNSW in index_types:
             self.con.execute("INSTALL vss; LOAD vss;")
             try:
                 self.con.begin()
@@ -1137,3 +1136,15 @@ def _vss_method_info(method: VSSMethod) -> tuple[str, str]:
         raise ValueError(f"Unknown method: {method}")
 
     return method_mapping[method]
+
+
+def _coerce_index_type(value: IndexType | str) -> IndexType:
+    if isinstance(value, IndexType):
+        return value
+    try:
+        return IndexType(value)
+    except ValueError as exc:
+        allowed = ", ".join(x.value for x in IndexType)
+        raise ValueError(
+            f"Unknown index type '{value}'. Allowed values: {allowed}"
+        ) from exc

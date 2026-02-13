@@ -2,7 +2,7 @@
 
 from typing import Annotated
 
-from raghilda.store import DuckDBIndexType, DuckDBStore
+from raghilda.store import DuckDBStore
 from raghilda.document import MarkdownDocument
 from raghilda.chunker import MarkdownChunker
 
@@ -132,7 +132,7 @@ docs = [
 for doc in docs:
     store.insert(chunker.chunk_document(doc))
 
-store.build_index(DuckDBIndexType.BM25)
+store.build_index("bm25")
 
 print("=== Simple Store ===")
 show_results(
@@ -194,7 +194,7 @@ complex_docs = [
 for doc in complex_docs:
     complex_store.insert(chunker.chunk_document(doc))
 
-complex_store.build_index(DuckDBIndexType.BM25)
+complex_store.build_index("bm25")
 
 show_results(
     "Complex query (no filter)",
