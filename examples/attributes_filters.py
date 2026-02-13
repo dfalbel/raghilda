@@ -17,12 +17,13 @@ def show_results(title, chunks):
         print(f"     attributes={chunk.attributes}")
 
 
+# fmt: off
 class ExampleAttributesSchemaClass:
     tenant: str                 # required
     priority: int = 0           # optional, default 0
     is_public: bool = False     # optional, default False
     topic: str | None = None    # optional, default None
-
+# fmt: on
 
 # All supported schema declaration styles:
 #
