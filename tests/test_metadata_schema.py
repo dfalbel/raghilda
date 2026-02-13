@@ -2,7 +2,7 @@ from typing import Annotated
 
 import pytest
 
-from raghilda._metadata import (
+from raghilda._attributes import (
     MetadataAttributeSpec,
     MetadataFloatVectorType,
     attributes_schema_from_json_dict,

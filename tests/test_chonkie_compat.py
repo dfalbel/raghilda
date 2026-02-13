@@ -11,6 +11,8 @@ from raghilda.document import Document, MarkdownDocument  # noqa: E402
 from raghilda.types import ChunkLike, DocumentLike  # noqa: E402
 from raghilda.store import DuckDBStore  # noqa: E402
 
+TokenChunker = getattr(chonkie, "TokenChunker")
+
 
 class TestChonkieChunkCompatibility:
     def test_chonkie_chunk_satisfies_chunk_like(self):
@@ -86,7 +88,6 @@ class TestChonkieDocumentCompatibility:
 class TestChonkieChunkerWithStore:
     def test_store_accepts_chonkie_chunked_document(self):
         """DuckDBStore should accept documents chunked by chonkie."""
-        from chonkie import TokenChunker  # pyright: ignore[reportPrivateImportUsage]
 
         # Create a store without embeddings
         store = DuckDBStore.create(
@@ -119,7 +120,6 @@ class TestChonkieChunkerWithStore:
 
     def test_store_ingest_with_chonkie_prepare_function(self):
         """DuckDBStore.ingest should work with a chonkie-based prepare function."""
-        from chonkie import TokenChunker  # pyright: ignore[reportPrivateImportUsage]
         import tempfile
         import os
 

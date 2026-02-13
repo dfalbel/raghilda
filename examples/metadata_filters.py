@@ -2,7 +2,7 @@
 
 from typing import Annotated
 
-from raghilda.store import DuckDBStore, IndexType
+from raghilda.store import DuckDBIndexType, DuckDBStore
 from raghilda.document import MarkdownDocument
 from raghilda.chunker import MarkdownChunker
 
@@ -16,7 +16,7 @@ class AttributesSpec:
 
 # All supported schema declaration styles:
 #
-# 1) Dict with scalar Python types
+# 1) Dict with scalar Python types (portable across DuckDB/Chroma/OpenAI today)
 SCHEMA_DICT = {
     "tenant": str,
     "topic": str,
@@ -34,7 +34,7 @@ SCHEMA_DICT_WITH_DEFAULTS = {
 # 3) Class annotations
 SCHEMA_CLASS = AttributesSpec
 #
-# 4) DuckDB-only fixed-size vectors
+# 4) DuckDB-only fixed-size vectors (backend support can expand later)
 SCHEMA_DUCKDB_WITH_VECTOR = {
     "tenant": str,
     "topic": str,
@@ -69,7 +69,7 @@ docs = [
 for doc in docs:
     store.insert(chunker.chunk_document(doc))
 
-store.build_index(IndexType.BM25)
+store.build_index(DuckDBIndexType.BM25)
 
 print("No filter:")
 for chunk in store.retrieve("beta", top_k=6):

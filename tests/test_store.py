@@ -2,15 +2,12 @@ import os
 import socket
 from typing import Annotated
 import pytest
-from raghilda.store import DuckDBStore, OpenAIStore
+from raghilda.store import DuckDBIndexType, DuckDBStore, OpenAIStore
 from raghilda.scrape import find_links
 from raghilda.document import MarkdownDocument
 from raghilda.chunk import MarkdownChunk, RetrievedChunk
-from raghilda._metadata import MetadataFloatVectorType
-from raghilda._store import (
-    RetrievedDuckDBMarkdownChunk,
-    IndexType,
-)  # internal implementation
+from raghilda._attributes import MetadataFloatVectorType
+from raghilda._store import RetrievedDuckDBMarkdownChunk  # internal implementation
 from raghilda.embedding import EmbeddingOpenAI
 
 
@@ -87,7 +84,7 @@ class TestDuckDBStore:
 
     @pytest.mark.parametrize("embed", [None, EmbeddingOpenAI()], indirect=True)
     def test_retrieve_bm25(self, store_with_docs):
-        store_with_docs.build_index(IndexType.BM25)
+        store_with_docs.build_index(DuckDBIndexType.BM25)
         results = store_with_docs.retrieve_bm25("document", top_k=3)
         assert len(results) == 3
         for chunk in results:
@@ -115,7 +112,7 @@ class TestDuckDBStore:
             _get_markdown_chunk(doc, start=12, end=25),  # "test document"
         ]
         store.insert(doc)
-        store.build_index(IndexType.BM25)
+        store.build_index(DuckDBIndexType.BM25)
 
         # Without deoverlap, we may get multiple overlapping chunks
         results_no_deoverlap = store.retrieve("test", top_k=5, deoverlap=False)
@@ -221,7 +218,7 @@ class TestDuckDBStore:
             )
         ]
         store.insert(doc)
-        store.build_index(IndexType.BM25)
+        store.build_index(DuckDBIndexType.BM25)
 
         results = store.retrieve(
             "hello",
@@ -283,7 +280,7 @@ class TestDuckDBStore:
         ]
 
         store.insert(doc)
-        store.build_index(IndexType.BM25)
+        store.build_index(DuckDBIndexType.BM25)
 
         private_results = store.retrieve(
             "alpha",
@@ -356,7 +353,7 @@ class TestDuckDBStore:
         ]
 
         store.insert(doc)
-        store.build_index(IndexType.BM25)
+        store.build_index(DuckDBIndexType.BM25)
 
         results = store.retrieve("alpha", top_k=5, deoverlap=False)
         assert len(results) == 1

@@ -31,8 +31,8 @@ from ._embedding import (
     EmbedInputType,
     embedding_from_config,
 )
-from ._metadata import (
-    MetadataFilter,
+from ._attributes import (
+    AttributeFilter,
     AttributesSchemaSpec,
     MetadataAttributeSpec,
     MetadataType,
@@ -288,8 +288,15 @@ class RetrievedChromaDBMarkdownChunk(ChromaDBMarkdownChunk, RetrievedChunk):
 class ChromaDBStoreMetadata:
     name: str
     title: str
-    attributes_spec: dict[str, MetadataAttributeSpec]
-    attributes_schema: dict[str, MetadataType]
+    attributes: dict[str, MetadataAttributeSpec]
+
+    @property
+    def attributes_spec(self) -> dict[str, MetadataAttributeSpec]:
+        return self.attributes
+
+    @property
+    def attributes_schema(self) -> dict[str, MetadataType]:
+        return {key: spec.metadata_type for key, spec in self.attributes.items()}
 
 
 class ChromaDBStore(BaseStore):
@@ -367,10 +374,6 @@ class ChromaDBStore(BaseStore):
             allow_vector_types=False,
             allow_optional_values=False,
         )
-        attributes_schema = {
-            key: spec.metadata_type for key, spec in attributes_spec.items()
-        }
-
         if client is None:
             client = _get_client(location)
 
@@ -402,8 +405,7 @@ class ChromaDBStore(BaseStore):
             metadata=ChromaDBStoreMetadata(
                 name=name,
                 title=title,
-                attributes_spec=attributes_spec,
-                attributes_schema=attributes_schema,
+                attributes=attributes_spec,
             ),
         )
 
@@ -455,18 +457,13 @@ class ChromaDBStore(BaseStore):
                 allow_vector_types=False,
                 allow_optional_values=False,
             )
-        attributes_schema = {
-            key: spec.metadata_type for key, spec in attributes_spec.items()
-        }
-
         return ChromaDBStore(
             client=client,
             collection=collection,
             metadata=ChromaDBStoreMetadata(
                 name=name,
                 title=title,
-                attributes_spec=attributes_spec,
-                attributes_schema=attributes_schema,
+                attributes=attributes_spec,
             ),
         )
 
@@ -620,7 +617,7 @@ class ChromaDBStore(BaseStore):
         top_k: int,
         *,
         deoverlap: bool = True,
-        attributes_filter: Optional[MetadataFilter] = None,
+        attributes_filter: Optional[AttributeFilter] = None,
         **kwargs,
     ) -> Sequence[RetrievedChromaDBMarkdownChunk]:
         """Retrieve the most similar chunks to the given text.

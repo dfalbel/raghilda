@@ -17,15 +17,15 @@ from enum import StrEnum
 from concurrent.futures import ThreadPoolExecutor
 from tqdm import tqdm
 from ._deoverlap import deoverlap_chunks
-from ._metadata import (
-    MetadataFilter,
+from ._attributes import (
+    AttributeFilter,
     MetadataAttributeSpec,
     AttributesSchemaSpec,
     MetadataType,
     MetadataValue,
     attributes_spec_from_json_dict,
     attributes_spec_to_json_dict,
-    coerce_metadata_value_for_output,
+    coerce_attribute_value_for_output,
     compile_filter_to_sql,
     duckdb_sql_type_for_metadata_type,
     normalize_attributes_spec,
@@ -234,9 +234,13 @@ class VSSMethod(StrEnum):
     NEGATIVE_INNER_PRODUCT = "negative_inner_product"
 
 
-class IndexType(StrEnum):
+class DuckDBIndexType(StrEnum):
     BM25 = "bm25"
     HNSW = "hnsw"
+
+
+# Backward-compatible alias.
+IndexType = DuckDBIndexType
 
 
 class DuckDBStore(BaseStore):
@@ -380,10 +384,10 @@ class DuckDBStore(BaseStore):
         }
 
         if embed is None:
-            embedding_column = None
+            embedding_column_sql = None
         else:
             embedding_size = len(embed.embed(["foo"])[0])
-            embedding_column = f"embedding FLOAT[{embedding_size}]"
+            embedding_column_sql = f"embedding FLOAT[{embedding_size}]"
 
         # Get embed config as JSON if provider is given
         embed_config_json = None
@@ -391,12 +395,12 @@ class DuckDBStore(BaseStore):
             embed_config_json = json.dumps(embed.get_config())
 
         metadata_schema_json = json.dumps(attributes_spec_to_json_dict(attributes_spec))
-        extra_attribute_column_defs = _duckdb_attribute_column_defs(
+        attribute_column_defs_sql = _duckdb_attribute_column_defs(
             attributes_schema=attributes_schema,
         )
-        tail_columns = list(extra_attribute_column_defs)
-        if embedding_column is not None:
-            tail_columns.append(embedding_column)
+        tail_columns = list(attribute_column_defs_sql)
+        if embedding_column_sql is not None:
+            tail_columns.append(embedding_column_sql)
         tail_columns_sql = ""
         if tail_columns:
             tail_columns_sql = ",\n            " + ",\n            ".join(tail_columns)
@@ -605,8 +609,7 @@ class DuckDBStore(BaseStore):
         doc.drop(
             columns=["chunks", "attributes", "metadata"], inplace=True, errors="ignore"
         )
-        chunk_records = [asdict(x) for x in chunked_doc.chunks]
-        chunks = pd.DataFrame(chunk_records)
+        chunks = pd.DataFrame(asdict(chunk) for chunk in chunked_doc.chunks)
 
         resolved_chunk_attributes: list[dict[str, MetadataValue]] = []
         for chunk in chunked_doc.chunks:
@@ -674,7 +677,7 @@ class DuckDBStore(BaseStore):
         top_k: int = 3,
         *,
         deoverlap: bool = True,
-        attributes_filter: Optional[MetadataFilter] = None,
+        attributes_filter: Optional[AttributeFilter] = None,
     ) -> Sequence[RetrievedDuckDBMarkdownChunk]:
         """Retrieve the most similar chunks to the given text.
 
@@ -742,7 +745,7 @@ class DuckDBStore(BaseStore):
         top_k: int,
         *,
         method: VSSMethod = VSSMethod.COSINE_DISTANCE,
-        attributes_filter: Optional[MetadataFilter] = None,
+        attributes_filter: Optional[AttributeFilter] = None,
     ) -> list[RetrievedDuckDBMarkdownChunk]:
         """Retrieve chunks using vector similarity search.
 
@@ -792,47 +795,38 @@ class DuckDBStore(BaseStore):
         query_vector = f"[{','.join(str(x) for x in query)}]::FLOAT[{len(query)}]"
 
         if compiled_filter is None:
-            sql = f"""
-            SELECT
-                e.doc_id,
-                e.chunk_id,
-                e.start AS start_index,
-                e.end AS end_index,
-                e.context,
-                {attribute_select}
-                doc.text[ e.start: e.end ] AS text,
-                e.metric_name,
-                e.metric_value
-            FROM (
+            source_sql = f"""
+            (
                 SELECT
                     *,
-                    '{method}' AS metric_name,
                     {func}(embedding, {query_vector}) AS metric_value
                 FROM embeddings
                 ORDER BY metric_value {order}
                 LIMIT {top_k}
             ) AS e
-            JOIN documents doc USING (doc_id)
-            ORDER BY metric_value
             """
+            metric_value_sql = "e.metric_value"
         else:
-            sql = f"""
-            SELECT
-                e.doc_id,
-                e.chunk_id,
-                e.start AS start_index,
-                e.end AS end_index,
-                e.context,
-                {attribute_select}
-                doc.text[ e.start: e.end ] AS text,
-                '{method}' AS metric_name,
-                {func}(e.embedding, {query_vector}) AS metric_value
-            FROM embeddings e
-            JOIN documents doc USING (doc_id)
-            {where_clause}
-            ORDER BY metric_value {order}
-            LIMIT {top_k}
-            """
+            source_sql = "embeddings e"
+            metric_value_sql = f"{func}(e.embedding, {query_vector})"
+
+        sql = f"""
+        SELECT
+            e.doc_id,
+            e.chunk_id,
+            e.start AS start_index,
+            e.end AS end_index,
+            e.context,
+            {attribute_select}
+            doc.text[ e.start: e.end ] AS text,
+            '{method}' AS metric_name,
+            {metric_value_sql} AS metric_value
+        FROM {source_sql}
+        JOIN documents doc USING (doc_id)
+        {where_clause}
+        ORDER BY metric_value {order}
+        LIMIT {top_k}
+        """
 
         cursor = self.con.cursor()
 
@@ -851,7 +845,7 @@ class DuckDBStore(BaseStore):
             attribute_values: dict[str, MetadataValue] = {}
             for key, metadata_type in self.metadata.attributes_schema.items():
                 if key in chunk_dict:
-                    attribute_values[key] = coerce_metadata_value_for_output(
+                    attribute_values[key] = coerce_attribute_value_for_output(
                         key,
                         chunk_dict.pop(key),
                         metadata_type,
@@ -870,7 +864,7 @@ class DuckDBStore(BaseStore):
         k: float = 1.2,
         b: float = 0.75,
         conjunctive: bool = False,
-        attributes_filter: Optional[MetadataFilter] = None,
+        attributes_filter: Optional[AttributeFilter] = None,
     ) -> list[RetrievedDuckDBMarkdownChunk]:
         """Retrieve chunks using BM25 full-text search.
 
@@ -906,12 +900,15 @@ class DuckDBStore(BaseStore):
             allowed_columns=allowed_filter_columns,
         )
         where_clause = f"WHERE {compiled_filter}" if compiled_filter else ""
+        metric_not_null_clause = (
+            "WHERE metric_value IS NOT NULL" if compiled_filter else ""
+        )
         attribute_select = _attributes_select_clause(
             alias="e", attributes_schema=self.metadata.attributes_schema
         )
 
-        if compiled_filter is None:
-            sql = f"""
+        sql = f"""
+        WITH ranked AS (
             SELECT
                 e.doc_id, 
                 e.chunk_id, 
@@ -924,32 +921,14 @@ class DuckDBStore(BaseStore):
                 fts_main_chunks.match_bm25(chunk_id, $query, k := $k, b := $b, conjunctive := $conjunctive) AS metric_value
             FROM embeddings e
             JOIN documents doc USING (doc_id)
-            ORDER BY metric_value DESC
-            LIMIT $top_k
-            """
-        else:
-            sql = f"""
-            SELECT
-                *
-            FROM (
-                SELECT
-                    e.doc_id, 
-                    e.chunk_id, 
-                    e.start AS start_index, 
-                    e.end AS end_index, 
-                    e.context, 
-                    {attribute_select}
-                    doc.text[ e.start: e.end ] AS text,
-                    'bm25' AS metric_name,
-                    fts_main_chunks.match_bm25(chunk_id, $query, k := $k, b := $b, conjunctive := $conjunctive) AS metric_value
-                FROM embeddings e
-                JOIN documents doc USING (doc_id)
-                {where_clause}
-            ) ranked
-            WHERE metric_value IS NOT NULL
-            ORDER BY metric_value DESC
-            LIMIT $top_k
-            """
+            {where_clause}
+        )
+        SELECT *
+        FROM ranked
+        {metric_not_null_clause}
+        ORDER BY metric_value DESC
+        LIMIT $top_k
+        """
 
         cursor = self.con.cursor()
 
@@ -977,7 +956,7 @@ class DuckDBStore(BaseStore):
             attribute_values: dict[str, MetadataValue] = {}
             for key, metadata_type in self.metadata.attributes_schema.items():
                 if key in chunk_dict:
-                    attribute_values[key] = coerce_metadata_value_for_output(
+                    attribute_values[key] = coerce_attribute_value_for_output(
                         key,
                         chunk_dict.pop(key),
                         metadata_type,
@@ -988,23 +967,25 @@ class DuckDBStore(BaseStore):
 
         return output
 
-    def build_index(self, type: Optional[IndexType | list[IndexType]] = None):
+    def build_index(
+        self, type: Optional[DuckDBIndexType | list[DuckDBIndexType]] = None
+    ):
         """
         Build the specified index types on the embeddings table.
 
         Parameters
         ----------
         type
-            The type of index to build. Can be a single IndexType or a list of IndexTypes.
+            The type of index to build. Can be a single DuckDBIndexType or a list of DuckDBIndexType.
             If None, builds both BM25 and HNSW indexes.
         """
         if type is None:
-            type = [IndexType.BM25, IndexType.HNSW]
+            type = [DuckDBIndexType.BM25, DuckDBIndexType.HNSW]
 
-        if isinstance(type, IndexType):
+        if isinstance(type, DuckDBIndexType):
             type = [type]
 
-        if IndexType.BM25 in type:
+        if DuckDBIndexType.BM25 in type:
             self.con.execute("INSTALL FTS; LOAD FTS;")
             try:
                 self.con.begin()
@@ -1014,7 +995,7 @@ class DuckDBStore(BaseStore):
                 self.con.rollback()
                 raise e
 
-        if IndexType.HNSW in type:
+        if DuckDBIndexType.HNSW in type:
             self.con.execute("INSTALL vss; LOAD vss;")
             try:
                 self.con.begin()

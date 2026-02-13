@@ -5,8 +5,8 @@ from .chunk import MarkdownChunk, RetrievedChunk, Metric
 from .document import Document, MarkdownDocument
 from typing import Any, Mapping, Optional, Sequence
 from dataclasses import dataclass
-from ._metadata import (
-    MetadataFilter,
+from ._attributes import (
+    AttributeFilter,
     AttributesSchemaSpec,
     MetadataAttributeSpec,
     MetadataType,
@@ -295,7 +295,7 @@ class OpenAIStore(BaseStore):
         text: str,
         top_k: int,
         *,
-        attributes_filter: Optional[MetadataFilter] = None,
+        attributes_filter: Optional[AttributeFilter] = None,
         **kwargs,
     ) -> Sequence[RetrievedOpenAIMarkdownChunk]:
         if attributes_filter is not None:

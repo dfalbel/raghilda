@@ -1,6 +1,6 @@
 import pytest
 
-from raghilda._metadata import (
+from raghilda._attributes import (
     compile_filter_to_chroma_where,
     compile_filter_to_openai_filters,
     compile_filter_to_sql,

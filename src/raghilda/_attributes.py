@@ -30,7 +30,9 @@ class MetadataFloatVectorType:
 MetadataValue = MetadataScalar | list[float] | None
 MetadataType: TypeAlias = MetadataScalarType | MetadataFloatVectorType
 AttributesSchemaSpec: TypeAlias = Mapping[str, Any] | type[Any]
-MetadataFilter: TypeAlias = str | Mapping[str, Any]
+AttributeFilter: TypeAlias = str | Mapping[str, Any]
+# Backward-compatible alias.
+MetadataFilter = AttributeFilter
 _MISSING = object()
 
 
@@ -524,7 +526,7 @@ def _normalize_metadata_value(
     return cast(MetadataValue, value)
 
 
-def coerce_metadata_value_for_output(
+def coerce_attribute_value_for_output(
     key: str,
     value: Any,
     metadata_type: MetadataType,
@@ -536,6 +538,14 @@ def coerce_metadata_value_for_output(
         context="retrieved attributes",
         allow_none=True,
     )
+
+
+def coerce_metadata_value_for_output(
+    key: str,
+    value: Any,
+    metadata_type: MetadataType,
+) -> MetadataValue:
+    return coerce_attribute_value_for_output(key, value, metadata_type)
 
 
 def metadata_type_supports_filters(metadata_type: MetadataType) -> bool:
@@ -559,7 +569,7 @@ FilterNode = FilterComparison | FilterLogical
 
 
 def compile_filter_to_sql(
-    attributes_filter: Optional[MetadataFilter],
+    attributes_filter: Optional[AttributeFilter],
     *,
     allowed_columns: Optional[Iterable[str]] = None,
 ) -> Optional[str]:
@@ -570,7 +580,7 @@ def compile_filter_to_sql(
 
 
 def compile_filter_to_chroma_where(
-    attributes_filter: Optional[MetadataFilter],
+    attributes_filter: Optional[AttributeFilter],
     *,
     allowed_columns: Optional[Iterable[str]] = None,
 ) -> Optional[dict[str, Any]]:
@@ -581,7 +591,7 @@ def compile_filter_to_chroma_where(
 
 
 def compile_filter_to_openai_filters(
-    attributes_filter: Optional[MetadataFilter],
+    attributes_filter: Optional[AttributeFilter],
     *,
     allowed_columns: Optional[Iterable[str]] = None,
 ) -> Optional[dict[str, Any]]:
@@ -592,7 +602,7 @@ def compile_filter_to_openai_filters(
 
 
 def _parse_filter_or_none(
-    attributes_filter: Optional[MetadataFilter],
+    attributes_filter: Optional[AttributeFilter],
     *,
     allowed_columns: Optional[Iterable[str]],
 ) -> Optional[FilterNode]:
