@@ -7,6 +7,16 @@ from raghilda.document import MarkdownDocument
 from raghilda.chunker import MarkdownChunker
 
 
+def show_results(title, chunks):
+    print(f"\n{title}")
+    if not chunks:
+        print("  (no matches)")
+        return
+    for idx, chunk in enumerate(chunks, start=1):
+        print(f"  {idx}. {chunk.text.strip()!r}")
+        print(f"     attributes={chunk.attributes}")
+
+
 class ExampleAttributesSpec:
     tenant: str                 # required
     priority: int = 0           # optional, default 0
@@ -124,38 +134,40 @@ for doc in docs:
 
 store.build_index(DuckDBIndexType.BM25)
 
-print("No filter:")
-for chunk in store.retrieve("beta", top_k=6):
-    print("-", chunk.text.strip(), chunk.attributes)
-
-print("\nFiltered with SQL-like string:")
-chunks_string = store.retrieve(
-    "beta",
-    top_k=6,
-    attributes_filter="""
-    tenant IN ('docs', 'blog')
-    AND priority IN (5, 10)
-    """,
+print("=== Simple Store ===")
+show_results(
+    "Simple query (no filter)",
+    store.retrieve("beta", top_k=3, deoverlap=False),
 )
-for chunk in chunks_string:
-    print("-", chunk.text.strip(), chunk.attributes)
-
-print("\nFiltered with dict AST:")
-chunks_dict = store.retrieve(
-    "beta",
-    top_k=6,
-    attributes_filter={
-        "type": "and",
-        "filters": [
-            {"type": "eq", "key": "tenant", "value": "docs"},
-            {"type": "in", "key": "priority", "value": [5, 10]},
-        ],
-    },
+show_results(
+    "Simple query (SQL-like filter)",
+    store.retrieve(
+        "beta",
+        top_k=3,
+        deoverlap=False,
+        attributes_filter="""
+        tenant IN ('docs', 'blog')
+        AND priority IN (5, 10)
+        """,
+    ),
 )
-for chunk in chunks_dict:
-    print("-", chunk.text.strip(), chunk.attributes)
+show_results(
+    "Simple query (dict AST filter)",
+    store.retrieve(
+        "beta",
+        top_k=3,
+        deoverlap=False,
+        attributes_filter={
+            "type": "and",
+            "filters": [
+                {"type": "eq", "key": "tenant", "value": "docs"},
+                {"type": "in", "key": "priority", "value": [5, 10]},
+            ],
+        },
+    ),
+)
 
-print("\n--- Complex store with vector + nested attributes ---")
+print("\n=== Complex Store (Vector + Nested Attributes) ===")
 complex_store = DuckDBStore.create(
     location=":memory:",
     embed=None,
@@ -184,37 +196,35 @@ for doc in complex_docs:
 
 complex_store.build_index(DuckDBIndexType.BM25)
 
-print("\nComplex query (no filter):")
-complex_results = complex_store.retrieve("beta", top_k=5, deoverlap=False)
-for chunk in complex_results:
-    print("-", chunk.text.strip(), chunk.attributes)
-
-print("\nComplex query (SQL-like filter with dot-path object access):")
-complex_sql_filter_results = complex_store.retrieve(
-    "beta",
-    top_k=5,
-    deoverlap=False,
-    attributes_filter="""
-    tenant = 'docs'
-    AND details.source = 'handbook'
-    AND details.flags.is_public = TRUE
-    """,
+show_results(
+    "Complex query (no filter)",
+    complex_store.retrieve("beta", top_k=3, deoverlap=False),
 )
-for chunk in complex_sql_filter_results:
-    print("-", chunk.text.strip(), chunk.attributes)
-
-print("\nComplex query (dict AST filter):")
-complex_dict_filter_results = complex_store.retrieve(
-    "beta",
-    top_k=5,
-    deoverlap=False,
-    attributes_filter={
-        "type": "and",
-        "filters": [
-            {"type": "eq", "key": "tenant", "value": "blog"},
-            {"type": "gte", "key": "priority", "value": 5},
-        ],
-    },
+show_results(
+    "Complex query (SQL-like filter with dot-path object access)",
+    complex_store.retrieve(
+        "beta",
+        top_k=3,
+        deoverlap=False,
+        attributes_filter="""
+        tenant = 'docs'
+        AND details.source = 'handbook'
+        AND details.flags.is_public = TRUE
+        """,
+    ),
 )
-for chunk in complex_dict_filter_results:
-    print("-", chunk.text.strip(), chunk.attributes)
+show_results(
+    "Complex query (dict AST filter)",
+    complex_store.retrieve(
+        "beta",
+        top_k=3,
+        deoverlap=False,
+        attributes_filter={
+            "type": "and",
+            "filters": [
+                {"type": "eq", "key": "tenant", "value": "blog"},
+                {"type": "gte", "key": "priority", "value": 5},
+            ],
+        },
+    ),
+)
