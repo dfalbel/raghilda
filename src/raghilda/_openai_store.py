@@ -8,13 +8,13 @@ from dataclasses import dataclass
 from ._attributes import (
     AttributeFilter,
     AttributesSchemaSpec,
-    MetadataAttributeSpec,
-    MetadataType,
-    MetadataValue,
+    AttributeSpec,
+    AttributeType,
+    AttributeValue,
     attributes_spec_from_json_dict,
     attributes_spec_to_json_dict,
     compile_filter_to_openai_filters,
-    merge_metadata_values,
+    merge_attribute_values,
     normalize_attributes_spec,
 )
 
@@ -150,7 +150,7 @@ class OpenAIStore(BaseStore):
             allow_optional_values=False,
         )
         attributes_schema = {
-            key: spec.metadata_type for key, spec in attributes_spec.items()
+            key: spec.attribute_type for key, spec in attributes_spec.items()
         }
 
         client = openai.Client(api_key=api_key, base_url=base_url)
@@ -214,7 +214,7 @@ class OpenAIStore(BaseStore):
                 allow_optional_values=False,
             )
         resolved_attributes_schema = {
-            key: spec.metadata_type for key, spec in resolved_attributes_spec.items()
+            key: spec.attribute_type for key, spec in resolved_attributes_spec.items()
         }
 
         return OpenAIStore(
@@ -229,8 +229,8 @@ class OpenAIStore(BaseStore):
         client: Any,
         store_id: str,
         *,
-        attributes_spec: Optional[Mapping[str, MetadataAttributeSpec]] = None,
-        attributes: Optional[Mapping[str, MetadataType]] = None,
+        attributes_spec: Optional[Mapping[str, AttributeSpec]] = None,
+        attributes: Optional[Mapping[str, AttributeType]] = None,
     ):
         self.client = client
         self.store_id = store_id
@@ -251,7 +251,7 @@ class OpenAIStore(BaseStore):
             resolved_schema = dict(attributes)
         else:
             resolved_schema = {
-                key: spec.metadata_type for key, spec in resolved_spec.items()
+                key: spec.attribute_type for key, spec in resolved_spec.items()
             }
 
         self.attributes_spec = resolved_spec
@@ -261,7 +261,7 @@ class OpenAIStore(BaseStore):
         self,
         document: Document,
         *,
-        attributes: Optional[Mapping[str, MetadataValue]] = None,
+        attributes: Optional[Mapping[str, AttributeValue]] = None,
     ) -> None:
         # Upload the document content as a file to the vector store
         # create a temporary file, write the content to it, and upload it
@@ -275,7 +275,7 @@ class OpenAIStore(BaseStore):
                         "OpenAIStore does not support per-chunk attributes; use document-level attributes."
                     )
 
-        resolved_attributes = merge_metadata_values(
+        resolved_attributes = merge_attribute_values(
             attributes_spec=self.attributes_spec,
             sources=[document.attributes, attributes],
         )
@@ -339,7 +339,7 @@ class OpenAIStore(BaseStore):
 
 
 def _normalize_openai_attributes(
-    attributes: Mapping[str, MetadataValue],
+    attributes: Mapping[str, AttributeValue],
 ) -> dict[str, str | float | bool]:
     out: dict[str, str | float | bool] = {}
     for key, value in attributes.items():

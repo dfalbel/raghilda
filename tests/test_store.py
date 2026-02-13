@@ -6,7 +6,7 @@ from raghilda.store import DuckDBIndexType, DuckDBStore, OpenAIStore
 from raghilda.scrape import find_links
 from raghilda.document import MarkdownDocument
 from raghilda.chunk import MarkdownChunk, RetrievedChunk
-from raghilda._attributes import MetadataFloatVectorType
+from raghilda._attributes import AttributeFloatVectorType
 from raghilda._store import RetrievedDuckDBMarkdownChunk  # internal implementation
 from raghilda.embedding import EmbeddingOpenAI
 
@@ -196,7 +196,7 @@ class TestDuckDBStore:
         )
 
         vector_type = store.metadata.attributes_schema["embedding25"]
-        assert isinstance(vector_type, MetadataFloatVectorType)
+        assert isinstance(vector_type, AttributeFloatVectorType)
         assert vector_type.dimension == 25
 
         columns = store.con.execute("DESCRIBE embeddings").fetchall()

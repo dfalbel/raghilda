@@ -3,9 +3,9 @@ from typing import Annotated
 import pytest
 
 from raghilda._attributes import (
-    MetadataAttributeSpec,
-    MetadataFloatVectorType,
-    MetadataStructType,
+    AttributeSpec,
+    AttributeFloatVectorType,
+    AttributeStructType,
     attributes_schema_from_json_dict,
     attributes_schema_to_json_dict,
     attributes_spec_from_json_dict,
@@ -38,7 +38,7 @@ def test_attributes_schema_roundtrip_with_vector_annotation():
         reserved_columns=set(),
         allow_vector_types=True,
     )
-    assert schema["embedding25"] == MetadataFloatVectorType(dimension=25)
+    assert schema["embedding25"] == AttributeFloatVectorType(dimension=25)
 
     encoded = attributes_schema_to_json_dict(schema)
     assert encoded == {"embedding25": "float_vector[25]"}
@@ -58,25 +58,25 @@ def test_normalize_attributes_spec_supports_inline_defaults_and_optional_union()
         reserved_columns=set(),
     )
     assert spec == {
-        "tenant": MetadataAttributeSpec(
-            metadata_type=str,
+        "tenant": AttributeSpec(
+            attribute_type=str,
             nullable=False,
             required=True,
         ),
-        "priority": MetadataAttributeSpec(
-            metadata_type=int,
+        "priority": AttributeSpec(
+            attribute_type=int,
             nullable=False,
             required=False,
             default=0,
         ),
-        "is_public": MetadataAttributeSpec(
-            metadata_type=bool,
+        "is_public": AttributeSpec(
+            attribute_type=bool,
             nullable=False,
             required=False,
             default=False,
         ),
-        "topic": MetadataAttributeSpec(
-            metadata_type=str,
+        "topic": AttributeSpec(
+            attribute_type=str,
             nullable=True,
             required=False,
             default=None,
@@ -111,10 +111,10 @@ def test_attributes_schema_roundtrip_with_nested_object_annotation():
         allow_struct_types=True,
     )
     assert schema["tenant"] is str
-    assert schema["details"] == MetadataStructType(
+    assert schema["details"] == AttributeStructType(
         fields={
             "source": str,
-            "flags": MetadataStructType(fields={"is_public": bool}),
+            "flags": AttributeStructType(fields={"is_public": bool}),
         }
     )
 

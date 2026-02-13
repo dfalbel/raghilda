@@ -17,49 +17,47 @@ from typing import (
     get_type_hints,
 )
 
-MetadataScalar = str | int | float | bool
-MetadataFilterValue = MetadataScalar | None
-MetadataScalarType: TypeAlias = type[str] | type[int] | type[float] | type[bool]
+AttributeScalar = str | int | float | bool
+AttributeFilterValue = AttributeScalar | None
+AttributeScalarType: TypeAlias = type[str] | type[int] | type[float] | type[bool]
 
 
 @dataclass(frozen=True)
-class MetadataFloatVectorType:
+class AttributeFloatVectorType:
     dimension: int
 
 
 @dataclass(frozen=True)
-class MetadataStructType:
-    fields: dict[str, "MetadataType"]
+class AttributeStructType:
+    fields: dict[str, "AttributeType"]
 
 
-MetadataObjectValue: TypeAlias = dict[str, "MetadataValue"]
-MetadataValue = MetadataScalar | list[float] | MetadataObjectValue | None
-MetadataType: TypeAlias = (
-    MetadataScalarType | MetadataFloatVectorType | MetadataStructType
+AttributeObjectValue: TypeAlias = dict[str, "AttributeValue"]
+AttributeValue = AttributeScalar | list[float] | AttributeObjectValue | None
+AttributeType: TypeAlias = (
+    AttributeScalarType | AttributeFloatVectorType | AttributeStructType
 )
 AttributesSchemaSpec: TypeAlias = Mapping[str, Any] | type[Any]
 AttributeFilter: TypeAlias = str | Mapping[str, Any]
-# Backward-compatible alias.
-MetadataFilter = AttributeFilter
 _MISSING = object()
 
 
 @dataclass(frozen=True)
-class MetadataAttributeSpec:
-    metadata_type: MetadataType
+class AttributeSpec:
+    attribute_type: AttributeType
     nullable: bool
     required: bool
-    default: MetadataValue = None
+    default: AttributeValue = None
 
 
-_METADATA_SCALAR_TYPE_TO_NAME: dict[MetadataScalarType, str] = {
+_ATTRIBUTE_SCALAR_TYPE_TO_NAME: dict[AttributeScalarType, str] = {
     str: "str",
     int: "int",
     float: "float",
     bool: "bool",
 }
-_METADATA_NAME_TO_SCALAR_TYPE: dict[str, MetadataScalarType] = {
-    value: key for key, value in _METADATA_SCALAR_TYPE_TO_NAME.items()
+_ATTRIBUTE_NAME_TO_SCALAR_TYPE: dict[str, AttributeScalarType] = {
+    value: key for key, value in _ATTRIBUTE_SCALAR_TYPE_TO_NAME.items()
 }
 _FLOAT_VECTOR_TYPE_PATTERN = re.compile(r"^float_vector\[(\d+)\]$")
 
@@ -71,7 +69,7 @@ def normalize_attributes_schema(
     allow_vector_types: bool = False,
     allow_struct_types: bool = True,
     allow_optional_values: bool = True,
-) -> dict[str, MetadataType]:
+) -> dict[str, AttributeType]:
     attributes_spec = normalize_attributes_spec(
         attributes=attributes,
         reserved_columns=reserved_columns,
@@ -79,7 +77,7 @@ def normalize_attributes_schema(
         allow_struct_types=allow_struct_types,
         allow_optional_values=allow_optional_values,
     )
-    return {key: spec.metadata_type for key, spec in attributes_spec.items()}
+    return {key: spec.attribute_type for key, spec in attributes_spec.items()}
 
 
 def normalize_attributes_spec(
@@ -89,10 +87,10 @@ def normalize_attributes_spec(
     allow_vector_types: bool = False,
     allow_struct_types: bool = True,
     allow_optional_values: bool = True,
-) -> dict[str, MetadataAttributeSpec]:
+) -> dict[str, AttributeSpec]:
     schema_items = _attributes_schema_items(attributes)
     reserved = set(reserved_columns)
-    spec: dict[str, MetadataAttributeSpec] = {}
+    spec: dict[str, AttributeSpec] = {}
 
     for key, item in schema_items.items():
         if not isinstance(key, str) or not key:
@@ -100,7 +98,7 @@ def normalize_attributes_spec(
         if key in reserved:
             raise ValueError(f"Attribute column '{key}' is reserved")
 
-        metadata_type, nullable = _parse_metadata_type(
+        attribute_type, nullable = _parse_attribute_type(
             key=key,
             annotation=item["annotation"],
             allow_vector_types=allow_vector_types,
@@ -123,8 +121,8 @@ def normalize_attributes_spec(
             )
 
         if required:
-            spec[key] = MetadataAttributeSpec(
-                metadata_type=metadata_type,
+            spec[key] = AttributeSpec(
+                attribute_type=attribute_type,
                 nullable=nullable,
                 required=True,
             )
@@ -135,15 +133,15 @@ def normalize_attributes_spec(
                 f"Default None for attribute '{key}' requires an optional type annotation"
             )
 
-        normalized_default = _normalize_metadata_value(
+        normalized_default = _normalize_attribute_value(
             key,
             default_value,
-            metadata_type,
+            attribute_type,
             context="default attribute",
             allow_none=nullable,
         )
-        spec[key] = MetadataAttributeSpec(
-            metadata_type=metadata_type,
+        spec[key] = AttributeSpec(
+            attribute_type=attribute_type,
             nullable=nullable,
             required=False,
             default=normalized_default,
@@ -203,19 +201,19 @@ def _attributes_schema_items(
     raise ValueError("attributes must be a mapping or a class with type annotations")
 
 
-def _parse_metadata_type(
+def _parse_attribute_type(
     *,
     key: str,
     annotation: Any,
     allow_vector_types: bool,
     allow_struct_types: bool,
-) -> tuple[MetadataType, bool]:
+) -> tuple[AttributeType, bool]:
     annotation, nullable = _unwrap_optional_annotation(annotation)
 
-    if isinstance(annotation, type) and annotation in _METADATA_SCALAR_TYPE_TO_NAME:
-        return cast(MetadataScalarType, annotation), nullable
+    if isinstance(annotation, type) and annotation in _ATTRIBUTE_SCALAR_TYPE_TO_NAME:
+        return cast(AttributeScalarType, annotation), nullable
 
-    if isinstance(annotation, MetadataFloatVectorType):
+    if isinstance(annotation, AttributeFloatVectorType):
         if not allow_vector_types:
             raise ValueError(
                 f"Vector attribute types are not supported for '{key}' in this backend"
@@ -241,8 +239,8 @@ def _parse_metadata_type(
         extras = args[1:]
         nullable = nullable or base_nullable
 
-        if isinstance(base, type) and base in _METADATA_SCALAR_TYPE_TO_NAME:
-            return cast(MetadataScalarType, base), nullable
+        if isinstance(base, type) and base in _ATTRIBUTE_SCALAR_TYPE_TO_NAME:
+            return cast(AttributeScalarType, base), nullable
 
         if isinstance(base, Mapping):
             if extras:
@@ -282,14 +280,14 @@ def _parse_struct_annotation(
     annotation: Mapping[str, Any],
     allow_vector_types: bool,
     allow_struct_types: bool,
-) -> MetadataStructType:
-    fields: dict[str, MetadataType] = {}
+) -> AttributeStructType:
+    fields: dict[str, AttributeType] = {}
     for field_name, field_annotation in annotation.items():
         if not isinstance(field_name, str) or not field_name:
             raise ValueError(
                 f"Object attribute field names for '{key}' must be non-empty strings"
             )
-        field_type, field_nullable = _parse_metadata_type(
+        field_type, field_nullable = _parse_attribute_type(
             key=f"{key}.{field_name}",
             annotation=field_annotation,
             allow_vector_types=allow_vector_types,
@@ -300,12 +298,12 @@ def _parse_struct_annotation(
                 f"Optional object attribute field '{key}.{field_name}' is not supported"
             )
         fields[field_name] = field_type
-    return MetadataStructType(fields=fields)
+    return AttributeStructType(fields=fields)
 
 
 def _parse_vector_annotation(
     base: Any, extras: tuple[Any, ...]
-) -> Optional[MetadataType]:
+) -> Optional[AttributeType]:
     base_origin = get_origin(base)
     base_args = get_args(base)
     if base_origin is not list or len(base_args) != 1 or base_args[0] is not float:
@@ -319,7 +317,7 @@ def _parse_vector_annotation(
             "Vector attribute annotations must include exactly one positive integer dimension"
         )
 
-    return MetadataFloatVectorType(dimension=dimensions[0])
+    return AttributeFloatVectorType(dimension=dimensions[0])
 
 
 def _unwrap_optional_annotation(annotation: Any) -> tuple[Any, bool]:
@@ -340,32 +338,32 @@ def _unwrap_optional_annotation(annotation: Any) -> tuple[Any, bool]:
 
 
 def attributes_schema_to_json_dict(
-    attributes_schema: Mapping[str, MetadataType],
+    attributes_schema: Mapping[str, AttributeType],
 ) -> dict[str, Any]:
     return {
-        key: _metadata_type_to_json_value(value)
+        key: _attribute_type_to_json_value(value)
         for key, value in attributes_schema.items()
     }
 
 
-def _metadata_type_to_name(metadata_type: MetadataType) -> str:
-    if isinstance(metadata_type, MetadataFloatVectorType):
-        return f"float_vector[{metadata_type.dimension}]"
-    if isinstance(metadata_type, MetadataStructType):
+def _attribute_type_to_name(attribute_type: AttributeType) -> str:
+    if isinstance(attribute_type, AttributeFloatVectorType):
+        return f"float_vector[{attribute_type.dimension}]"
+    if isinstance(attribute_type, AttributeStructType):
         raise ValueError("Structured object attributes are serialized as mappings")
-    return _METADATA_SCALAR_TYPE_TO_NAME[metadata_type]
+    return _ATTRIBUTE_SCALAR_TYPE_TO_NAME[attribute_type]
 
 
-def _metadata_type_to_json_value(metadata_type: MetadataType) -> Any:
-    if isinstance(metadata_type, MetadataStructType):
+def _attribute_type_to_json_value(attribute_type: AttributeType) -> Any:
+    if isinstance(attribute_type, AttributeStructType):
         return {
             "type": "struct",
             "fields": {
-                key: _metadata_type_to_json_value(value)
-                for key, value in metadata_type.fields.items()
+                key: _attribute_type_to_json_value(value)
+                for key, value in attribute_type.fields.items()
             },
         }
-    return _metadata_type_to_name(metadata_type)
+    return _attribute_type_to_name(attribute_type)
 
 
 def attributes_schema_from_json_dict(
@@ -373,12 +371,12 @@ def attributes_schema_from_json_dict(
     *,
     allow_vector_types: bool = True,
     allow_struct_types: bool = True,
-) -> dict[str, MetadataType]:
-    schema: dict[str, MetadataType] = {}
+) -> dict[str, AttributeType]:
+    schema: dict[str, AttributeType] = {}
     for key, value in attributes_schema_json.items():
         if not isinstance(key, str) or not key:
             raise ValueError("Attribute column names must be non-empty strings")
-        schema[key] = _metadata_type_from_json_value(
+        schema[key] = _attribute_type_from_json_value(
             key=key,
             value=value,
             allow_vector_types=allow_vector_types,
@@ -389,12 +387,12 @@ def attributes_schema_from_json_dict(
 
 
 def attributes_spec_to_json_dict(
-    attributes_spec: Mapping[str, MetadataAttributeSpec],
+    attributes_spec: Mapping[str, AttributeSpec],
 ) -> dict[str, Any]:
     out: dict[str, Any] = {}
     for key, spec in attributes_spec.items():
         payload: dict[str, Any] = {
-            "type": _metadata_type_to_json_value(spec.metadata_type),
+            "type": _attribute_type_to_json_value(spec.attribute_type),
             "nullable": spec.nullable,
             "required": spec.required,
         }
@@ -410,8 +408,8 @@ def attributes_spec_from_json_dict(
     allow_vector_types: bool = True,
     allow_struct_types: bool = True,
     allow_optional_values: bool = True,
-) -> dict[str, MetadataAttributeSpec]:
-    out: dict[str, MetadataAttributeSpec] = {}
+) -> dict[str, AttributeSpec]:
+    out: dict[str, AttributeSpec] = {}
     for key, payload in attributes_spec_json.items():
         if not isinstance(key, str) or not key:
             raise ValueError("Attribute column names must be non-empty strings")
@@ -439,7 +437,7 @@ def attributes_spec_from_json_dict(
                 f"Optional attribute values are not supported for '{key}' in this backend"
             )
 
-        metadata_type = _metadata_type_from_json_value(
+        attribute_type = _attribute_type_from_json_value(
             key=key,
             value=type_value,
             allow_vector_types=allow_vector_types,
@@ -447,8 +445,8 @@ def attributes_spec_from_json_dict(
         )
 
         if required:
-            out[key] = MetadataAttributeSpec(
-                metadata_type=metadata_type,
+            out[key] = AttributeSpec(
+                attribute_type=attribute_type,
                 nullable=nullable,
                 required=True,
             )
@@ -459,15 +457,15 @@ def attributes_spec_from_json_dict(
             raise ValueError(
                 f"Default None for attribute '{key}' requires nullable=true in serialized spec"
             )
-        default_value = _normalize_metadata_value(
+        default_value = _normalize_attribute_value(
             key,
             default_raw,
-            metadata_type,
+            attribute_type,
             context="default attribute",
             allow_none=nullable,
         )
-        out[key] = MetadataAttributeSpec(
-            metadata_type=metadata_type,
+        out[key] = AttributeSpec(
+            attribute_type=attribute_type,
             nullable=nullable,
             required=False,
             default=default_value,
@@ -475,30 +473,30 @@ def attributes_spec_from_json_dict(
     return out
 
 
-def _parse_metadata_type_name(type_name: str) -> Optional[MetadataType]:
+def _parse_attribute_type_name(type_name: str) -> Optional[AttributeType]:
     match = _FLOAT_VECTOR_TYPE_PATTERN.fullmatch(type_name)
     if match is not None:
-        return MetadataFloatVectorType(dimension=int(match.group(1)))
+        return AttributeFloatVectorType(dimension=int(match.group(1)))
     return None
 
 
-def _metadata_type_from_json_value(
+def _attribute_type_from_json_value(
     *,
     key: str,
     value: Any,
     allow_vector_types: bool,
     allow_struct_types: bool,
-) -> MetadataType:
+) -> AttributeType:
     if isinstance(value, str):
-        if value in _METADATA_NAME_TO_SCALAR_TYPE:
-            return _METADATA_NAME_TO_SCALAR_TYPE[value]
+        if value in _ATTRIBUTE_NAME_TO_SCALAR_TYPE:
+            return _ATTRIBUTE_NAME_TO_SCALAR_TYPE[value]
 
-        vector_type = _parse_metadata_type_name(value)
+        vector_type = _parse_attribute_type_name(value)
         if vector_type is None:
             raise ValueError(
                 f"Attribute type for '{key}' must be one of: str, int, float, bool, float_vector[N], or struct"
             )
-        if isinstance(vector_type, MetadataFloatVectorType) and not allow_vector_types:
+        if isinstance(vector_type, AttributeFloatVectorType) and not allow_vector_types:
             raise ValueError(
                 f"Vector attribute types are not supported for '{key}' in this backend"
             )
@@ -520,51 +518,51 @@ def _metadata_type_from_json_value(
                 f"Attribute struct type for '{key}' must include mapping 'fields'"
             )
 
-        fields: dict[str, MetadataType] = {}
+        fields: dict[str, AttributeType] = {}
         for field_name, field_type_json in fields_value.items():
             if not isinstance(field_name, str) or not field_name:
                 raise ValueError(
                     f"Attribute struct field names for '{key}' must be non-empty strings"
                 )
-            fields[field_name] = _metadata_type_from_json_value(
+            fields[field_name] = _attribute_type_from_json_value(
                 key=f"{key}.{field_name}",
                 value=field_type_json,
                 allow_vector_types=allow_vector_types,
                 allow_struct_types=allow_struct_types,
             )
-        return MetadataStructType(fields=fields)
+        return AttributeStructType(fields=fields)
 
     raise ValueError(
         f"Attribute type for '{key}' must be one of: str, int, float, bool, float_vector[N], or struct"
     )
 
 
-def duckdb_sql_type_for_metadata_type(metadata_type: MetadataType) -> str:
-    if metadata_type is str:
+def duckdb_sql_type_for_attribute_type(attribute_type: AttributeType) -> str:
+    if attribute_type is str:
         return "VARCHAR"
-    if metadata_type is int:
+    if attribute_type is int:
         return "INTEGER"
-    if metadata_type is float:
+    if attribute_type is float:
         return "DOUBLE"
-    if metadata_type is bool:
+    if attribute_type is bool:
         return "BOOLEAN"
-    if isinstance(metadata_type, MetadataFloatVectorType):
-        return f"FLOAT[{metadata_type.dimension}]"
-    if isinstance(metadata_type, MetadataStructType):
+    if isinstance(attribute_type, AttributeFloatVectorType):
+        return f"FLOAT[{attribute_type.dimension}]"
+    if isinstance(attribute_type, AttributeStructType):
         fields_sql = ", ".join(
-            f"{field_name} {duckdb_sql_type_for_metadata_type(field_type)}"
-            for field_name, field_type in metadata_type.fields.items()
+            f"{field_name} {duckdb_sql_type_for_attribute_type(field_type)}"
+            for field_name, field_type in attribute_type.fields.items()
         )
         return f"STRUCT({fields_sql})"
-    raise ValueError(f"Unsupported attribute type: {metadata_type}")
+    raise ValueError(f"Unsupported attribute type: {attribute_type}")
 
 
-def merge_metadata_values(
+def merge_attribute_values(
     *,
-    attributes_spec: Mapping[str, MetadataAttributeSpec],
+    attributes_spec: Mapping[str, AttributeSpec],
     sources: Iterable[Optional[Mapping[str, Any]]],
-) -> dict[str, MetadataValue]:
-    merged: dict[str, MetadataValue | object] = {
+) -> dict[str, AttributeValue]:
+    merged: dict[str, AttributeValue | object] = {
         key: _MISSING for key in attributes_spec
     }
 
@@ -577,14 +575,14 @@ def merge_metadata_values(
                     f"Unknown attribute key '{key}'. Declare it in attributes when creating the store."
                 )
             spec = attributes_spec[key]
-            merged[key] = _normalize_metadata_value(
+            merged[key] = _normalize_attribute_value(
                 key,
                 value,
-                spec.metadata_type,
+                spec.attribute_type,
                 allow_none=spec.nullable,
             )
 
-    result: dict[str, MetadataValue] = {}
+    result: dict[str, AttributeValue] = {}
     for key, spec in attributes_spec.items():
         value = merged[key]
         if value is _MISSING:
@@ -592,27 +590,27 @@ def merge_metadata_values(
                 raise ValueError(
                     f"Missing required attribute '{key}'. Provide a value in document, insert call, or chunk attributes."
                 )
-            value = _copy_metadata_default(spec.default)
-        result[key] = cast(MetadataValue, value)
+            value = _copy_attribute_default(spec.default)
+        result[key] = cast(AttributeValue, value)
     return result
 
 
-def _copy_metadata_default(value: MetadataValue) -> MetadataValue:
+def _copy_attribute_default(value: AttributeValue) -> AttributeValue:
     if isinstance(value, list):
         return list(value)
     if isinstance(value, dict):
-        return {key: _copy_metadata_default(item) for key, item in value.items()}
+        return {key: _copy_attribute_default(item) for key, item in value.items()}
     return value
 
 
-def _normalize_metadata_value(
+def _normalize_attribute_value(
     key: str,
     value: Any,
-    metadata_type: MetadataType,
+    attribute_type: AttributeType,
     *,
     context: str = "attributes",
     allow_none: bool = True,
-) -> MetadataValue:
+) -> AttributeValue:
     if value is None:
         if allow_none:
             return None
@@ -620,14 +618,14 @@ def _normalize_metadata_value(
             f"Invalid value for {context} '{key}': expected non-null value, got NoneType"
         )
 
-    if isinstance(metadata_type, MetadataFloatVectorType):
+    if isinstance(attribute_type, AttributeFloatVectorType):
         if not isinstance(value, (list, tuple)):
             raise ValueError(
-                f"Invalid value for {context} '{key}': expected list[float] with length {metadata_type.dimension}, got {type(value).__name__}"
+                f"Invalid value for {context} '{key}': expected list[float] with length {attribute_type.dimension}, got {type(value).__name__}"
             )
-        if len(value) != metadata_type.dimension:
+        if len(value) != attribute_type.dimension:
             raise ValueError(
-                f"Invalid value for {context} '{key}': expected list[float] with length {metadata_type.dimension}, got length {len(value)}"
+                f"Invalid value for {context} '{key}': expected list[float] with length {attribute_type.dimension}, got length {len(value)}"
             )
         normalized: list[float] = []
         for item in value:
@@ -638,24 +636,24 @@ def _normalize_metadata_value(
             normalized.append(float(item))
         return normalized
 
-    if isinstance(metadata_type, MetadataStructType):
+    if isinstance(attribute_type, AttributeStructType):
         if not isinstance(value, Mapping):
             raise ValueError(
                 f"Invalid value for {context} '{key}': expected object mapping, got {type(value).__name__}"
             )
-        extra_fields = set(value) - set(metadata_type.fields)
+        extra_fields = set(value) - set(attribute_type.fields)
         if extra_fields:
             extra_display = ", ".join(sorted(extra_fields))
             raise ValueError(
                 f"Invalid value for {context} '{key}': unknown object field(s): {extra_display}"
             )
-        normalized_object: dict[str, MetadataValue] = {}
-        for field_name, field_type in metadata_type.fields.items():
+        normalized_object: dict[str, AttributeValue] = {}
+        for field_name, field_type in attribute_type.fields.items():
             if field_name not in value:
                 raise ValueError(
                     f"Invalid value for {context} '{key}': missing object field '{field_name}'"
                 )
-            normalized_object[field_name] = _normalize_metadata_value(
+            normalized_object[field_name] = _normalize_attribute_value(
                 f"{key}.{field_name}",
                 value[field_name],
                 field_type,
@@ -664,13 +662,13 @@ def _normalize_metadata_value(
             )
         return normalized_object
 
-    if metadata_type is str:
+    if attribute_type is str:
         ok = isinstance(value, str)
-    elif metadata_type is bool:
+    elif attribute_type is bool:
         ok = isinstance(value, bool)
-    elif metadata_type is int:
+    elif attribute_type is int:
         ok = isinstance(value, int) and not isinstance(value, bool)
-    elif metadata_type is float:
+    elif attribute_type is float:
         ok = (isinstance(value, int) and not isinstance(value, bool)) or isinstance(
             value, float
         )
@@ -679,73 +677,65 @@ def _normalize_metadata_value(
 
     if not ok:
         raise ValueError(
-            f"Invalid value for {context} '{key}': expected {_metadata_type_label(metadata_type)}, got {type(value).__name__}"
+            f"Invalid value for {context} '{key}': expected {_attribute_type_label(attribute_type)}, got {type(value).__name__}"
         )
-    return cast(MetadataValue, value)
+    return cast(AttributeValue, value)
 
 
 def coerce_attribute_value_for_output(
     key: str,
     value: Any,
-    metadata_type: MetadataType,
-) -> MetadataValue:
-    return _normalize_metadata_value(
+    attribute_type: AttributeType,
+) -> AttributeValue:
+    return _normalize_attribute_value(
         key,
         value,
-        metadata_type,
+        attribute_type,
         context="retrieved attributes",
         allow_none=True,
     )
 
 
-def coerce_metadata_value_for_output(
-    key: str,
-    value: Any,
-    metadata_type: MetadataType,
-) -> MetadataValue:
-    return coerce_attribute_value_for_output(key, value, metadata_type)
-
-
-def metadata_type_supports_filters(metadata_type: MetadataType) -> bool:
-    return not isinstance(metadata_type, MetadataFloatVectorType)
+def attribute_type_supports_filters(attribute_type: AttributeType) -> bool:
+    return not isinstance(attribute_type, AttributeFloatVectorType)
 
 
 def filterable_attribute_paths(
-    attributes_schema: Mapping[str, MetadataType],
+    attributes_schema: Mapping[str, AttributeType],
 ) -> set[str]:
     out: set[str] = set()
-    for key, metadata_type in attributes_schema.items():
-        out |= _filterable_attribute_paths_for_type(key, metadata_type)
+    for key, attribute_type in attributes_schema.items():
+        out |= _filterable_attribute_paths_for_type(key, attribute_type)
     return out
 
 
 def _filterable_attribute_paths_for_type(
     prefix: str,
-    metadata_type: MetadataType,
+    attribute_type: AttributeType,
 ) -> set[str]:
-    if isinstance(metadata_type, MetadataFloatVectorType):
+    if isinstance(attribute_type, AttributeFloatVectorType):
         return set()
-    if isinstance(metadata_type, MetadataStructType):
+    if isinstance(attribute_type, AttributeStructType):
         out: set[str] = set()
-        for key, nested in metadata_type.fields.items():
+        for key, nested in attribute_type.fields.items():
             out |= _filterable_attribute_paths_for_type(f"{prefix}.{key}", nested)
         return out
     return {prefix}
 
 
-def _metadata_type_label(metadata_type: MetadataType) -> str:
-    if isinstance(metadata_type, MetadataFloatVectorType):
-        return f"list[float] (length {metadata_type.dimension})"
-    if isinstance(metadata_type, MetadataStructType):
+def _attribute_type_label(attribute_type: AttributeType) -> str:
+    if isinstance(attribute_type, AttributeFloatVectorType):
+        return f"list[float] (length {attribute_type.dimension})"
+    if isinstance(attribute_type, AttributeStructType):
         return "object"
-    return metadata_type.__name__
+    return attribute_type.__name__
 
 
 @dataclass(frozen=True)
 class FilterComparison:
     column: str
     operator: str
-    value: MetadataFilterValue | list[MetadataScalar]
+    value: AttributeFilterValue | list[AttributeScalar]
 
 
 @dataclass(frozen=True)
@@ -861,7 +851,7 @@ def _parse_filter_mapping_node(
     raise ValueError(f"Unknown filter node type '{node_type}'")
 
 
-def _parse_filter_scalar_value(value: Any, *, allow_null: bool) -> MetadataFilterValue:
+def _parse_filter_scalar_value(value: Any, *, allow_null: bool) -> AttributeFilterValue:
     if value is None:
         if allow_null:
             return None
@@ -875,10 +865,10 @@ def _parse_filter_scalar_value(value: Any, *, allow_null: bool) -> MetadataFilte
     raise ValueError(f"Unsupported filter value type: {type(value).__name__}")
 
 
-def _parse_filter_list_value(value: Any) -> list[MetadataScalar]:
+def _parse_filter_list_value(value: Any) -> list[AttributeScalar]:
     if not isinstance(value, list) or len(value) == 0:
         raise ValueError("IN/NIN filter values must be a non-empty list")
-    parsed: list[MetadataScalar] = []
+    parsed: list[AttributeScalar] = []
     for item in value:
         item_value = _parse_filter_scalar_value(item, allow_null=False)
         assert item_value is not None
@@ -887,7 +877,7 @@ def _parse_filter_list_value(value: Any) -> list[MetadataScalar]:
 
 
 def _validate_null_comparison_operator(
-    *, operator: str, value: MetadataFilterValue
+    *, operator: str, value: AttributeFilterValue
 ) -> None:
     if value is None and operator not in {"eq", "ne"}:
         raise ValueError("NULL is only allowed with = and != operators")
@@ -991,22 +981,22 @@ class _FilterParser:
             parts.append(next_token.value)
         return ".".join(parts)
 
-    def _parse_literal_list(self) -> list[MetadataScalar]:
+    def _parse_literal_list(self) -> list[AttributeScalar]:
         self._expect("LPAREN")
-        values: list[MetadataScalar] = []
+        values: list[AttributeScalar] = []
         values.append(self._parse_list_literal_value())
         while self._match("COMMA"):
             values.append(self._parse_list_literal_value())
         self._expect("RPAREN")
         return values
 
-    def _parse_list_literal_value(self) -> MetadataScalar:
+    def _parse_list_literal_value(self) -> AttributeScalar:
         value = self._parse_literal_value()
         if value is None:
             raise ValueError("NULL is not allowed inside IN (...) lists")
         return value
 
-    def _parse_literal_value(self) -> MetadataFilterValue:
+    def _parse_literal_value(self) -> AttributeFilterValue:
         token = self._peek()
         if token.kind == "STRING":
             self._idx += 1
@@ -1151,15 +1141,15 @@ def _emit_sql(node: FilterNode) -> str:
 
     column = _sql_column_expression(node.column)
     if node.operator == "in":
-        values = cast(list[MetadataScalar], node.value)
+        values = cast(list[AttributeScalar], node.value)
         values_sql = ", ".join(_sql_literal_scalar(value) for value in values)
         return f"{column} IN ({values_sql})"
     if node.operator == "nin":
-        values = cast(list[MetadataScalar], node.value)
+        values = cast(list[AttributeScalar], node.value)
         values_sql = ", ".join(_sql_literal_scalar(value) for value in values)
         return f"{column} NOT IN ({values_sql})"
 
-    value = cast(MetadataFilterValue, node.value)
+    value = cast(AttributeFilterValue, node.value)
     if value is None and node.operator == "eq":
         return f"{column} IS NULL"
     if value is None and node.operator == "ne":
@@ -1240,7 +1230,7 @@ def _emit_openai_filters(node: FilterNode) -> dict[str, Any]:
     }
 
 
-def _sql_literal_scalar(value: MetadataScalar) -> str:
+def _sql_literal_scalar(value: AttributeScalar) -> str:
     if isinstance(value, bool):
         return "TRUE" if value else "FALSE"
     if isinstance(value, (int, float)):
@@ -1249,7 +1239,7 @@ def _sql_literal_scalar(value: MetadataScalar) -> str:
     return f"'{escaped}'"
 
 
-def _sql_literal(value: MetadataFilterValue) -> str:
+def _sql_literal(value: AttributeFilterValue) -> str:
     if value is None:
         return "NULL"
     return _sql_literal_scalar(value)

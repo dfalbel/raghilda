@@ -34,13 +34,13 @@ from ._embedding import (
 from ._attributes import (
     AttributeFilter,
     AttributesSchemaSpec,
-    MetadataAttributeSpec,
-    MetadataType,
-    MetadataValue,
+    AttributeSpec,
+    AttributeType,
+    AttributeValue,
     attributes_spec_from_json_dict,
     attributes_spec_to_json_dict,
     compile_filter_to_chroma_where,
-    merge_metadata_values,
+    merge_attribute_values,
     normalize_attributes_spec,
 )
 from tqdm import tqdm
@@ -288,15 +288,15 @@ class RetrievedChromaDBMarkdownChunk(ChromaDBMarkdownChunk, RetrievedChunk):
 class ChromaDBStoreMetadata:
     name: str
     title: str
-    attributes: dict[str, MetadataAttributeSpec]
+    attributes: dict[str, AttributeSpec]
 
     @property
-    def attributes_spec(self) -> dict[str, MetadataAttributeSpec]:
+    def attributes_spec(self) -> dict[str, AttributeSpec]:
         return self.attributes
 
     @property
-    def attributes_schema(self) -> dict[str, MetadataType]:
-        return {key: spec.metadata_type for key, spec in self.attributes.items()}
+    def attributes_schema(self) -> dict[str, AttributeType]:
+        return {key: spec.attribute_type for key, spec in self.attributes.items()}
 
 
 class ChromaDBStore(BaseStore):
@@ -451,7 +451,7 @@ class ChromaDBStore(BaseStore):
         )
         metadata = collection.metadata or {}
         title = metadata.get(_METADATA_TITLE_KEY, "Raghilda ChromaDB Store")
-        attributes_spec: dict[str, MetadataAttributeSpec] = {}
+        attributes_spec: dict[str, AttributeSpec] = {}
         if metadata.get(_METADATA_SCHEMA_KEY) is not None:
             attributes_spec = attributes_spec_from_json_dict(
                 json.loads(metadata[_METADATA_SCHEMA_KEY]),
@@ -478,7 +478,7 @@ class ChromaDBStore(BaseStore):
         self,
         document: Document,
         *,
-        attributes: Optional[Mapping[str, MetadataValue]] = None,
+        attributes: Optional[Mapping[str, AttributeValue]] = None,
     ) -> None:
         if not isinstance(document, MarkdownDocument):
             raise ValueError("Only MarkdownDocument is supported for ChromaDBStore")
@@ -490,7 +490,7 @@ class ChromaDBStore(BaseStore):
         ids = []
         metadatas = []
         for idx, chunk in enumerate(document.chunks):
-            resolved_attributes = merge_metadata_values(
+            resolved_attributes = merge_attribute_values(
                 attributes_spec=self.metadata.attributes_spec,
                 sources=[document.attributes, attributes, chunk.attributes],
             )

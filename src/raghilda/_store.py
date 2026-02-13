@@ -19,18 +19,18 @@ from tqdm import tqdm
 from ._deoverlap import deoverlap_chunks
 from ._attributes import (
     AttributeFilter,
-    MetadataAttributeSpec,
+    AttributeSpec,
     AttributesSchemaSpec,
-    MetadataType,
-    MetadataValue,
+    AttributeType,
+    AttributeValue,
     attributes_spec_from_json_dict,
     attributes_spec_to_json_dict,
     coerce_attribute_value_for_output,
     compile_filter_to_sql,
-    duckdb_sql_type_for_metadata_type,
+    duckdb_sql_type_for_attribute_type,
     filterable_attribute_paths,
     normalize_attributes_spec,
-    merge_metadata_values,
+    merge_attribute_values,
 )
 from ._utils import lazy_map
 
@@ -174,7 +174,7 @@ class BaseStore(ABC):
         self,
         document: Document,
         *,
-        attributes: Optional[Mapping[str, MetadataValue]] = None,
+        attributes: Optional[Mapping[str, AttributeValue]] = None,
     ) -> None:
         """Insert a document into the store.
 
@@ -224,8 +224,8 @@ class DuckDBStoreMetadata:
     name: str
     title: str
     embed: Optional[EmbeddingProvider]
-    attributes_spec: dict[str, MetadataAttributeSpec]
-    attributes_schema: dict[str, MetadataType]
+    attributes_spec: dict[str, AttributeSpec]
+    attributes_schema: dict[str, AttributeType]
 
 
 class VSSMethod(StrEnum):
@@ -318,7 +318,7 @@ class DuckDBStore(BaseStore):
             allow_vector_types=True,
         )
         attributes_schema = {
-            key: spec.metadata_type for key, spec in attributes_spec.items()
+            key: spec.attribute_type for key, spec in attributes_spec.items()
         }
 
         metadata = DuckDBStoreMetadata(
@@ -380,7 +380,7 @@ class DuckDBStore(BaseStore):
             allow_optional_values=True,
         )
         attributes_schema = {
-            key: spec.metadata_type for key, spec in attributes_spec.items()
+            key: spec.attribute_type for key, spec in attributes_spec.items()
         }
 
         if embed is None:
@@ -486,7 +486,7 @@ class DuckDBStore(BaseStore):
         self,
         document: Document,
         *,
-        attributes: Optional[Mapping[str, MetadataValue]] = None,
+        attributes: Optional[Mapping[str, AttributeValue]] = None,
     ) -> None:
         if isinstance(document, MarkdownDocument):
             self._insert_chunked_document(document, attributes=attributes)
@@ -599,7 +599,7 @@ class DuckDBStore(BaseStore):
         self,
         chunked_doc: MarkdownDocument,
         *,
-        attributes: Optional[Mapping[str, MetadataValue]] = None,
+        attributes: Optional[Mapping[str, AttributeValue]] = None,
     ) -> None:
         # Document should be chunked for insertion
         assert chunked_doc.chunks is not None
@@ -611,11 +611,11 @@ class DuckDBStore(BaseStore):
         )
         chunks = pd.DataFrame(asdict(chunk) for chunk in chunked_doc.chunks)
 
-        resolved_chunk_attributes: list[dict[str, MetadataValue]] = []
+        resolved_chunk_attributes: list[dict[str, AttributeValue]] = []
         for chunk in chunked_doc.chunks:
             chunk_attributes = getattr(chunk, "attributes", None)
             resolved_chunk_attributes.append(
-                merge_metadata_values(
+                merge_attribute_values(
                     attributes_spec=self.metadata.attributes_spec,
                     sources=[chunked_doc.attributes, attributes, chunk_attributes],
                 )
@@ -842,13 +842,13 @@ class DuckDBStore(BaseStore):
         for chunk in results:
             chunk_dict = dict(zip(columns, chunk))
             name, value = chunk_dict.pop("metric_name"), chunk_dict.pop("metric_value")
-            attribute_values: dict[str, MetadataValue] = {}
-            for key, metadata_type in self.metadata.attributes_schema.items():
+            attribute_values: dict[str, AttributeValue] = {}
+            for key, attribute_type in self.metadata.attributes_schema.items():
                 if key in chunk_dict:
                     attribute_values[key] = coerce_attribute_value_for_output(
                         key,
                         chunk_dict.pop(key),
-                        metadata_type,
+                        attribute_type,
                     )
             chunk_dict["metrics"] = [Metric(name, value)]
             chunk_dict["attributes"] = attribute_values
@@ -953,13 +953,13 @@ class DuckDBStore(BaseStore):
         for chunk in results:
             chunk_dict = dict(zip(columns, chunk))
             name, value = chunk_dict.pop("metric_name"), chunk_dict.pop("metric_value")
-            attribute_values: dict[str, MetadataValue] = {}
-            for key, metadata_type in self.metadata.attributes_schema.items():
+            attribute_values: dict[str, AttributeValue] = {}
+            for key, attribute_type in self.metadata.attributes_schema.items():
                 if key in chunk_dict:
                     attribute_values[key] = coerce_attribute_value_for_output(
                         key,
                         chunk_dict.pop(key),
-                        metadata_type,
+                        attribute_type,
                     )
             chunk_dict["metrics"] = [Metric(name, value)]
             chunk_dict["attributes"] = attribute_values
@@ -1056,7 +1056,7 @@ class DuckDBStore(BaseStore):
 
 
 def _attributes_select_clause(
-    alias: str, attributes_schema: Mapping[str, MetadataType]
+    alias: str, attributes_schema: Mapping[str, AttributeType]
 ) -> str:
     if not attributes_schema:
         return ""
@@ -1066,14 +1066,14 @@ def _attributes_select_clause(
 
 def _duckdb_attribute_column_defs(
     *,
-    attributes_schema: Mapping[str, MetadataType],
+    attributes_schema: Mapping[str, AttributeType],
 ) -> list[str]:
     if not attributes_schema:
         return []
 
     lines: list[str] = []
-    for column, metadata_type in attributes_schema.items():
-        sql_type = duckdb_sql_type_for_metadata_type(metadata_type)
+    for column, attribute_type in attributes_schema.items():
+        sql_type = duckdb_sql_type_for_attribute_type(attribute_type)
         lines.append(f"{_quote_identifier(column)} {sql_type}")
     return lines
 
