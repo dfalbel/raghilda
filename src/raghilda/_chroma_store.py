@@ -55,7 +55,7 @@ _METADATA_TITLE_KEY = "raghilda_title"
 _ATTRIBUTES_SCHEMA_METADATA_KEY = "raghilda_attributes_schema_json"
 _ADAPTER_NAME = "raghilda_embedding_adapter"
 
-_RESERVED_METADATA_COLUMNS = {
+_RESERVED_SYSTEM_COLUMNS = {
     "doc_id",
     "chunk_id",
     "start_index",
@@ -369,7 +369,7 @@ class ChromaDBStore(BaseStore):
 
         attributes_spec = normalize_attributes_spec(
             attributes=attributes,
-            reserved_columns=_RESERVED_METADATA_COLUMNS,
+            reserved_columns=_RESERVED_SYSTEM_COLUMNS,
             allow_vector_types=False,
             allow_struct_types=False,
             allow_optional_values=False,

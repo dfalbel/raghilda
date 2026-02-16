@@ -44,8 +44,10 @@ class Chunk:
         for field_info in fields(self):
             key = field_info.name
             value = getattr(self, key)
-            formatted = repr(value) if key == "text" else pformat(
-                value, width=84, sort_dicts=False
+            formatted = (
+                repr(value)
+                if key == "text"
+                else pformat(value, width=84, sort_dicts=False)
             )
             formatted = formatted.replace("\n", "\n    ")
             output.append(f"  {key}={formatted},")

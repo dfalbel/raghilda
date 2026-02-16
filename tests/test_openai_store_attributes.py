@@ -56,14 +56,14 @@ class _FakeOpenAIClient:
 
 
 def test_openai_store_create_accepts_class_attributes_schema(monkeypatch):
-    class MetadataSpec:
+    class AttributesSpec:
         tenant: str
         priority: int
 
     client = _FakeOpenAIClient()
     monkeypatch.setattr("raghilda._openai_store.openai.Client", lambda **kwargs: client)
 
-    store = OpenAIStore.create(attributes=MetadataSpec, name="my-store")
+    store = OpenAIStore.create(attributes=AttributesSpec, name="my-store")
     assert store.attributes_schema == {"tenant": str, "priority": int}
 
     assert len(client.vector_stores.create_calls) == 1

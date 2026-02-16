@@ -168,7 +168,7 @@ class TestDuckDBStore:
         assert columns_by_name["is_public"] == "BOOLEAN"
 
     def test_create_store_with_attributes_schema_class_annotations(self):
-        class MetadataSpec:
+        class AttributesSpec:
             tenant: str
             priority: int
             is_public: bool
@@ -177,7 +177,7 @@ class TestDuckDBStore:
             location=":memory:",
             embed=None,
             overwrite=True,
-            attributes=MetadataSpec,
+            attributes=AttributesSpec,
         )
 
         assert store.metadata.attributes_schema == {

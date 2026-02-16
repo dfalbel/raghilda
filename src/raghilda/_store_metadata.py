@@ -23,7 +23,7 @@ class AttributesStoreMetadata(Protocol):
 
 
 class EmbeddedAttributesStoreMetadata(AttributesStoreMetadata, Protocol):
-    """Metadata shape for stores with an embedding provider in metadata."""
+    """Metadata shape for stores with an embedding provider in store metadata."""
 
     embed: EmbeddingProvider | None
 

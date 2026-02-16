@@ -131,9 +131,10 @@ results = store.retrieve("query", top_k=5, deoverlap=True)
 results = store.retrieve("query", top_k=5, deoverlap=False)
 ```
 
-### Metadata Filtering
+### Attribute Filtering
 
-Pass ChromaDB `where` filters to narrow results:
+Use `attributes_filter` to narrow retrieval results by declared attributes
+and built-in filterable columns (for example `origin`):
 
 ```{python}
 #| eval: false
@@ -141,9 +142,11 @@ Pass ChromaDB `where` filters to narrow results:
 results = store.retrieve(
     "query",
     top_k=5,
-    where={"origin": "guide.md"}
+    attributes_filter="origin = 'guide.md'"
 )
 ```
+
+For advanced Chroma-specific filters, you can still pass `where=...` directly.
 
 ## Connecting to Existing Stores
 

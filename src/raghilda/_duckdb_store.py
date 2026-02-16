@@ -41,7 +41,7 @@ from ._store_metadata import (
 
 logger = logging.getLogger(__name__)
 
-_RESERVED_METADATA_COLUMNS = {
+_RESERVED_SYSTEM_COLUMNS = {
     "doc_id",
     "chunk_id",
     "start",
@@ -294,7 +294,7 @@ class DuckDBStore(BaseStore):
 
         attributes_spec = normalize_attributes_spec(
             attributes=attributes,
-            reserved_columns=_RESERVED_METADATA_COLUMNS,
+            reserved_columns=_RESERVED_SYSTEM_COLUMNS,
             allow_vector_types=True,
             allow_optional_values=True,
         )
@@ -521,7 +521,8 @@ class DuckDBStore(BaseStore):
         assert chunked_doc.chunks is not None
 
         doc = pd.DataFrame([asdict(chunked_doc)])
-        # Attributes are stored in the embeddings table using the attributes schema.
+        # User attributes are stored in declared embeddings columns. Drop any legacy
+        # catch-all "metadata" payload from incoming document-like objects.
         doc.drop(
             columns=["chunks", "attributes", "metadata"], inplace=True, errors="ignore"
         )
@@ -557,6 +558,7 @@ class DuckDBStore(BaseStore):
         # User attributes are represented as dedicated columns in embeddings.
         if "attributes" in chunks.columns:
             chunks.drop(columns=["attributes"], inplace=True)
+        # Ignore legacy chunk-level "metadata" payloads from external chunk types.
         if "metadata" in chunks.columns:
             chunks.drop(columns=["metadata"], inplace=True)
         # Some chunk implementations expose an `id` field; drop that temporary
