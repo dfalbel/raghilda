@@ -229,12 +229,15 @@ def _parse_attribute_type(
             raise ValueError(
                 f"Object attribute types are not supported for '{key}' in this backend"
             )
-        return _parse_struct_annotation(
-            key=key,
-            annotation=annotation,
-            allow_vector_types=allow_vector_types,
-            allow_struct_types=allow_struct_types,
-        ), nullable
+        return (
+            _parse_struct_annotation(
+                key=key,
+                annotation=annotation,
+                allow_vector_types=allow_vector_types,
+                allow_struct_types=allow_struct_types,
+            ),
+            nullable,
+        )
 
     origin = get_origin(annotation)
     if origin is Annotated:
@@ -255,12 +258,15 @@ def _parse_attribute_type(
                 raise ValueError(
                     f"Object attribute types are not supported for '{key}' in this backend"
                 )
-            return _parse_struct_annotation(
-                key=key,
-                annotation=base,
-                allow_vector_types=allow_vector_types,
-                allow_struct_types=allow_struct_types,
-            ), nullable
+            return (
+                _parse_struct_annotation(
+                    key=key,
+                    annotation=base,
+                    allow_vector_types=allow_vector_types,
+                    allow_struct_types=allow_struct_types,
+                ),
+                nullable,
+            )
 
         vector_type = _parse_vector_annotation(base, extras)
         if vector_type is None:
@@ -800,9 +806,9 @@ def _parse_filter_or_none(
     if isinstance(attributes_filter, Mapping):
         return _parse_filter_mapping_node(
             attributes_filter,
-            allowed_columns=set(allowed_columns)
-            if allowed_columns is not None
-            else None,
+            allowed_columns=(
+                set(allowed_columns) if allowed_columns is not None else None
+            ),
         )
     raise TypeError(
         f"attributes_filter must be a string or mapping, got {type(attributes_filter).__name__}"

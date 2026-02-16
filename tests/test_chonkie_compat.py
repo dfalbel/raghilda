@@ -5,7 +5,10 @@ import pytest
 # Skip all tests in this module if chonkie is not installed
 chonkie = pytest.importorskip("chonkie")
 
-from chonkie.types import Chunk as ChonkieChunk, Document as ChonkieDocument  # noqa: E402
+from chonkie.types import (
+    Chunk as ChonkieChunk,
+    Document as ChonkieDocument,
+)  # noqa: E402
 from raghilda.chunk import Chunk  # noqa: E402
 from raghilda.document import Document, MarkdownDocument  # noqa: E402
 from raghilda.types import ChunkLike, DocumentLike  # noqa: E402

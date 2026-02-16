@@ -291,10 +291,12 @@ class ChromaDBStoreMetadata(AttributesStoreMetadata):
 
     @property
     def attributes_spec(self) -> dict[str, AttributeSpec]:
+        """Full attribute declarations (type + required/nullable/default rules)."""
         return self.attributes
 
     @property
     def attributes_schema(self) -> dict[str, AttributeType]:
+        """Type-only attribute view derived from `attributes_spec`."""
         return attributes_schema_from_spec(self.attributes)
 
 
@@ -473,10 +475,7 @@ class ChromaDBStore(BaseStore):
         self.collection = collection
         self.metadata = metadata
 
-    def insert(
-        self,
-        document: Document,
-    ) -> None:
+    def insert(self, document: Document) -> None:
         if not isinstance(document, MarkdownDocument):
             raise ValueError("Only MarkdownDocument is supported for ChromaDBStore")
         if document.chunks is None:

@@ -148,10 +148,12 @@ class DuckDBStoreMetadata(EmbeddedAttributesStoreMetadata):
 
     @property
     def attributes_spec(self) -> dict[str, AttributeSpec]:
+        """Full attribute declarations (type + required/nullable/default rules)."""
         return self.attributes
 
     @property
     def attributes_schema(self) -> dict[str, AttributeType]:
+        """Type-only attribute view derived from `attributes_spec`."""
         return attributes_schema_from_spec(self.attributes)
 
 
@@ -326,7 +328,8 @@ class DuckDBStore(BaseStore):
         if tail_columns:
             tail_columns_sql = ",\n            " + ",\n            ".join(tail_columns)
 
-        con.execute(f"""
+        con.execute(
+            f"""
         CREATE SEQUENCE chunk_id_seq START 1; -- need a unique id for fts
 
         CREATE OR REPLACE TABLE metadata (
@@ -364,7 +367,8 @@ class DuckDBStore(BaseStore):
             USING
             (doc_id)
         );
-        """)
+        """
+        )
 
         # Insert metadata
         con.execute(
@@ -922,29 +926,36 @@ class DuckDBStore(BaseStore):
                 raise e
 
     def _create_fts_index(self):
-        self.con.execute("""
+        self.con.execute(
+            """
         ALTER VIEW chunks RENAME TO chunks_view;
 
         CREATE TABLE chunks AS
           SELECT chunk_id, context, text FROM chunks_view;
-        """)
+        """
+        )
 
-        self.con.execute("""
+        self.con.execute(
+            """
         PRAGMA create_fts_index(
           'chunks',            -- input_table
           'chunk_id',          -- input_id
           'context', 'text',   -- *input_values
           overwrite = 1
         );
-        """)
+        """
+        )
 
-        self.con.execute("""
+        self.con.execute(
+            """
         DROP TABLE chunks;
         ALTER VIEW chunks_view RENAME TO chunks;
-        """)
+        """
+        )
 
     def _create_hnsw_index(self):
-        self.con.execute("""
+        self.con.execute(
+            """
         SET hnsw_enable_experimental_persistence = true;
 
         DROP INDEX IF EXISTS store_hnsw_cosine_index;
@@ -954,7 +965,8 @@ class DuckDBStore(BaseStore):
         CREATE INDEX store_hnsw_cosine_index ON embeddings USING HNSW (embedding) WITH (metric = 'cosine');
         CREATE INDEX store_hnsw_l2sq_index   ON embeddings USING HNSW (embedding) WITH (metric = 'l2sq'); -- array_distance?
         CREATE INDEX store_hnsw_ip_index     ON embeddings USING HNSW (embedding) WITH (metric = 'ip');  -- array_dot_product
-        """)
+        """
+        )
 
     def size(self) -> int:
         result = self.con.execute(
