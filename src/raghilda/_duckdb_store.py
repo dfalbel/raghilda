@@ -521,11 +521,8 @@ class DuckDBStore(BaseStore):
         assert chunked_doc.chunks is not None
 
         doc = pd.DataFrame([asdict(chunked_doc)])
-        # User attributes are stored in declared embeddings columns. Drop any legacy
-        # catch-all "metadata" payload from incoming document-like objects.
-        doc.drop(
-            columns=["chunks", "attributes", "metadata"], inplace=True, errors="ignore"
-        )
+        # User attributes are stored in declared embeddings columns.
+        doc.drop(columns=["chunks", "attributes"], inplace=True, errors="ignore")
         chunks = pd.DataFrame(asdict(chunk) for chunk in chunked_doc.chunks)
 
         resolved_chunk_attributes: list[dict[str, AttributeValue]] = []
@@ -558,9 +555,6 @@ class DuckDBStore(BaseStore):
         # User attributes are represented as dedicated columns in embeddings.
         if "attributes" in chunks.columns:
             chunks.drop(columns=["attributes"], inplace=True)
-        # Ignore legacy chunk-level "metadata" payloads from external chunk types.
-        if "metadata" in chunks.columns:
-            chunks.drop(columns=["metadata"], inplace=True)
         # Some chunk implementations expose an `id` field; drop that temporary
         # source field before assigning declared user attributes.
         if "id" in chunks.columns:
