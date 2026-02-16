@@ -364,6 +364,37 @@ class TestDuckDBStore:
         assert len(results) == 1
         assert results[0].attributes == {"id": "attr-id-1", "tenant": "docs"}
 
+    def test_retrieve_rejects_text_attribute_filter(self):
+        store = DuckDBStore.create(
+            location=":memory:",
+            embed=None,
+            overwrite=True,
+        )
+
+        doc = MarkdownDocument(
+            origin="text-filter-test",
+            content="alpha beta",
+        )
+        doc.chunks = [
+            MarkdownChunk(
+                start_index=0,
+                end_index=5,
+                text="alpha",
+                token_count=5,
+            )
+        ]
+
+        store.insert(doc)
+        store.build_index("bm25")
+
+        with pytest.raises(ValueError, match="Unknown attribute column 'text'"):
+            store.retrieve(
+                "alpha",
+                top_k=5,
+                deoverlap=False,
+                attributes_filter="text = 'alpha'",
+            )
+
     def test_insert_and_retrieve_with_nested_object_attributes_filter(self):
         store = DuckDBStore.create(
             location=":memory:",
@@ -419,6 +450,55 @@ class TestDuckDBStore:
                 "source": "handbook",
                 "flags": {"is_public": True, "is_internal": False},
             },
+        }
+
+    def test_nested_object_attribute_with_hyphenated_field_name(self):
+        store = DuckDBStore.create(
+            location=":memory:",
+            embed=None,
+            overwrite=True,
+            attributes={
+                "details": {
+                    "source-type": str,
+                },
+            },
+        )
+
+        doc = MarkdownDocument(
+            origin="hyphenated-field-test",
+            content="alpha",
+            attributes={
+                "details": {
+                    "source-type": "handbook",
+                },
+            },
+        )
+        doc.chunks = [
+            MarkdownChunk(
+                start_index=0,
+                end_index=5,
+                text="alpha",
+                token_count=5,
+            )
+        ]
+        store.insert(doc)
+        store.build_index("bm25")
+
+        results = store.retrieve(
+            "alpha",
+            top_k=5,
+            deoverlap=False,
+            attributes_filter={
+                "type": "eq",
+                "key": "details.source-type",
+                "value": "handbook",
+            },
+        )
+        assert len(results) == 1
+        assert results[0].attributes == {
+            "details": {
+                "source-type": "handbook",
+            }
         }
 
     def test_insert_applies_inline_attribute_defaults(self):

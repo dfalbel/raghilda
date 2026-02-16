@@ -64,7 +64,6 @@ _FILTERABLE_BASE_COLUMNS = {
     "start",
     "end",
     "context",
-    "text",
 }
 
 
@@ -240,7 +239,6 @@ class DuckDBStore(BaseStore):
             raise ValueError("Missing attributes_schema_json in metadata table")
         attributes_spec = attributes_spec_from_json_dict(
             json.loads(attributes_schema_json),
-            allow_vector_types=True,
         )
 
         metadata = DuckDBStoreMetadata(
@@ -297,8 +295,6 @@ class DuckDBStore(BaseStore):
         attributes_spec = normalize_attributes_spec(
             attributes=attributes,
             reserved_columns=_RESERVED_SYSTEM_COLUMNS,
-            allow_vector_types=True,
-            allow_optional_values=True,
         )
         attributes_schema = {
             key: spec.attribute_type for key, spec in attributes_spec.items()

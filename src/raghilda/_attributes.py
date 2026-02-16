@@ -66,7 +66,7 @@ def normalize_attributes_schema(
     attributes: Optional[AttributesSchemaSpec],
     *,
     reserved_columns: Iterable[str],
-    allow_vector_types: bool = False,
+    allow_vector_types: bool = True,
     allow_struct_types: bool = True,
     allow_optional_values: bool = True,
 ) -> dict[str, AttributeType]:
@@ -84,7 +84,7 @@ def normalize_attributes_spec(
     attributes: Optional[AttributesSchemaSpec],
     *,
     reserved_columns: Iterable[str],
-    allow_vector_types: bool = False,
+    allow_vector_types: bool = True,
     allow_struct_types: bool = True,
     allow_optional_values: bool = True,
 ) -> dict[str, AttributeSpec]:
@@ -560,7 +560,7 @@ def duckdb_sql_type_for_attribute_type(attribute_type: AttributeType) -> str:
         return f"FLOAT[{attribute_type.dimension}]"
     if isinstance(attribute_type, AttributeStructType):
         fields_sql = ", ".join(
-            f"{field_name} {duckdb_sql_type_for_attribute_type(field_type)}"
+            f"{_quote_identifier(field_name)} {duckdb_sql_type_for_attribute_type(field_type)}"
             for field_name, field_type in attribute_type.fields.items()
         )
         return f"STRUCT({fields_sql})"
