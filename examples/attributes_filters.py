@@ -1,4 +1,21 @@
-"""Example: attributes-aware insertion and retrieval filtering."""
+"""
+Example: attributes-aware insertion and retrieval filtering.
+
+This example shows you how to build a store for RAG where chunks are
+augmented with attributes that you can use to filter or narrow the scope of
+retrieval. You can also include those attributes with retrieved chunks so a
+model gets extra context about where each chunk came from.
+
+That’s metadata-aware insertion and retrieval filtering:
+
+1. Define metadata schemas.
+2. Store simple documents and run attribute-filtered retrieval with two
+   filter syntaxes.
+3. Repeat the same retrieval style with nested attributes.
+
+The setup blocks are verbose by design so the query examples can be copied
+into a minimal script and adapted quickly.
+"""
 
 from typing import Annotated
 
@@ -27,14 +44,16 @@ class ExampleAttributesSchemaClass:
 
 # All supported schema declaration styles:
 #
-# 1) Dict with scalar Python types (portable across DuckDB/Chroma/OpenAI today)
+# 1) Dict with scalar Python types (portable across DuckDB/Chroma/OpenAI today).
+#    Best for quick schemas with only basic keys.
 EXAMPLE_ATTRIBUTES_SCHEMA_DICT = {
     "tenant": str,
     "topic": str,
     "priority": int,
 }
 #
-# 2) Dict with explicit defaults (optional values)
+# 2) Dict with explicit defaults (optional values).
+#    Useful when you want missing fields to resolve to defaults.
 EXAMPLE_ATTRIBUTES_SCHEMA_DICT_WITH_DEFAULTS = {
     "tenant": str,
     "priority": (int, 0),
@@ -42,10 +61,12 @@ EXAMPLE_ATTRIBUTES_SCHEMA_DICT_WITH_DEFAULTS = {
     "topic": (str | None, None),
 }
 #
-# 3) Class annotations
+# 3) Class annotations.
+#    Equivalent expressiveness with concise, type-checked-looking syntax.
 EXAMPLE_ATTRIBUTES_SCHEMA_SIMPLE = ExampleAttributesSchemaClass
 #
-# 4) DuckDB-only fixed-size vectors + JSON-like nested object (DuckDB struct-style)
+# 4) DuckDB-only fixed-size vectors + JSON-like nested object (DuckDB struct-style).
+#    Required for array-like attributes and nested metadata in one row.
 EXAMPLE_ATTRIBUTES_SCHEMA_COMPLEX = {
     "tenant": str,
     "topic": str,
@@ -106,6 +127,14 @@ EXAMPLE_ATTRIBUTES_VALUES_COMPLEX_BATCH = [
     },
 ]
 
+# You can skip directly here if you only care about usage:
+#    - define a store,
+#    - insert docs with metadata,
+#    - query by text with optional attribute constraints.
+
+# Choose a simple schema for the first pass so the filtering rules are easy
+# to read.
+
 store = DuckDBStore.create(
     location=":memory:",
     embed=None,
@@ -113,6 +142,8 @@ store = DuckDBStore.create(
 )
 
 chunker = MarkdownChunker()
+# The documents below are intentionally tiny so you can see exactly why each
+# filter does or doesn't match.
 docs = [
     MarkdownDocument(
         origin="guide.md",
@@ -133,13 +164,16 @@ docs = [
 for doc in docs:
     store.insert(chunker.chunk_document(doc))
 
+# Build a text index before retrieval.
 store.build_index("bm25")
 
 print("=== Simple Store ===")
+# First, confirm baseline retrieval without constraints.
 show_results(
     "Simple query (no filter)",
     store.retrieve("beta", top_k=3, deoverlap=False),
 )
+# Next, apply an SQL-like filter string.
 show_results(
     "Simple query (SQL-like filter)",
     store.retrieve(
@@ -152,6 +186,7 @@ show_results(
         """,
     ),
 )
+# Use the same semantics via the structured dict AST format.
 show_results(
     "Simple query (dict AST filter)",
     store.retrieve(
@@ -169,6 +204,8 @@ show_results(
 )
 
 print("\n=== Complex Store (Vector + Nested Attributes) ===")
+# For nested attributes, the syntax is the same at the callsite; only the
+# schema and filter keys become richer (dot-path access into objects).
 complex_store = DuckDBStore.create(
     location=":memory:",
     embed=None,
@@ -195,12 +232,14 @@ complex_docs = [
 for doc in complex_docs:
     complex_store.insert(chunker.chunk_document(doc))
 
+# Rebuild index after loading the second dataset.
 complex_store.build_index("bm25")
 
 show_results(
     "Complex query (no filter)",
     complex_store.retrieve("beta", top_k=3, deoverlap=False),
 )
+# Dot-path example (`details.flags.is_public`) drills into nested fields.
 show_results(
     "Complex query (SQL-like filter with dot-path object access)",
     complex_store.retrieve(
@@ -214,6 +253,7 @@ show_results(
         """,
     ),
 )
+# Equivalent semantics with dict AST for nested/typed metadata.
 show_results(
     "Complex query (dict AST filter)",
     complex_store.retrieve(
