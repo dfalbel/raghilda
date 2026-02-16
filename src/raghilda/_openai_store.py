@@ -21,7 +21,7 @@ from ._attributes import (
 _ATTRIBUTES_SCHEMA_METADATA_KEY = "raghilda_attributes_schema_json"
 
 
-@dataclass
+@dataclass(repr=False)
 class OpenAIMarkdownChunk(MarkdownChunk):
     """MarkdownChunk for OpenAI store - uses character count as token count"""
 
@@ -53,7 +53,7 @@ class OpenAIMarkdownChunk(MarkdownChunk):
         )
 
 
-@dataclass
+@dataclass(repr=False)
 class RetrievedOpenAIMarkdownChunk(OpenAIMarkdownChunk, RetrievedChunk):
     """OpenAIMarkdownChunk with retrieval metrics"""
 

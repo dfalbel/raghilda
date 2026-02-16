@@ -1,4 +1,4 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from typing import Any, Optional, Union
 from .types import ChunkLike, IntoChunk
 
@@ -36,6 +36,24 @@ class Chunk:
     token_count: int
     context: Optional[str] = None
     attributes: Optional[dict[str, Any]] = None
+
+    def __repr__(self) -> str:
+        from pprint import pformat
+
+        output: list[str] = [f"{type(self).__name__}("]
+        for field_info in fields(self):
+            key = field_info.name
+            value = getattr(self, key)
+            formatted = repr(value) if key == "text" else pformat(
+                value, width=84, sort_dicts=False
+            )
+            formatted = formatted.replace("\n", "\n    ")
+            output.append(f"  {key}={formatted},")
+
+        output.append(")")
+        return "\n".join(output)
+
+    __str__ = __repr__
 
     @classmethod
     def from_any(cls, chunk: Union[ChunkLike, IntoChunk]) -> "Chunk":
@@ -76,7 +94,7 @@ class Chunk:
         raise TypeError(f"Cannot convert {type(chunk).__name__} to Chunk")
 
 
-@dataclass
+@dataclass(repr=False)
 class MarkdownChunk(Chunk):
     """A chunk extracted from a Markdown document.
 
@@ -117,7 +135,7 @@ class Metric:
     value: float
 
 
-@dataclass
+@dataclass(repr=False)
 class RetrievedChunk(Chunk):
     """A chunk returned from a retrieval operation with associated metrics.
 

@@ -42,6 +42,7 @@ from ._attributes import (
     normalize_attributes_spec,
 )
 from tqdm import tqdm
+from ._store_metadata import AttributesStoreMetadata, attributes_schema_from_spec
 
 if TYPE_CHECKING:
     import numpy as np
@@ -216,7 +217,7 @@ def _get_client(location: str | Path | None):
     return chromadb.PersistentClient(path=str(location))
 
 
-@dataclass
+@dataclass(repr=False)
 class ChromaDBMarkdownChunk(MarkdownChunk):
     """MarkdownChunk with ChromaDB-specific fields for storage."""
 
@@ -250,7 +251,7 @@ class ChromaDBMarkdownChunk(MarkdownChunk):
         self.chunk_id = chunk_id
 
 
-@dataclass
+@dataclass(repr=False)
 class RetrievedChromaDBMarkdownChunk(ChromaDBMarkdownChunk, RetrievedChunk):
     """ChromaDBMarkdownChunk with retrieval metrics."""
 
@@ -283,7 +284,7 @@ class RetrievedChromaDBMarkdownChunk(ChromaDBMarkdownChunk, RetrievedChunk):
 
 
 @dataclass
-class ChromaDBStoreMetadata:
+class ChromaDBStoreMetadata(AttributesStoreMetadata):
     name: str
     title: str
     attributes: dict[str, AttributeSpec]
@@ -294,7 +295,7 @@ class ChromaDBStoreMetadata:
 
     @property
     def attributes_schema(self) -> dict[str, AttributeType]:
-        return {key: spec.attribute_type for key, spec in self.attributes.items()}
+        return attributes_schema_from_spec(self.attributes)
 
 
 class ChromaDBStore(BaseStore):
@@ -467,7 +468,7 @@ class ChromaDBStore(BaseStore):
             ),
         )
 
-    def __init__(self, client: Any, collection: Any, metadata: ChromaDBStoreMetadata):
+    def __init__(self, client: Any, collection: Any, metadata: AttributesStoreMetadata):
         self.client = client
         self.collection = collection
         self.metadata = metadata

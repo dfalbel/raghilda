@@ -33,6 +33,10 @@ from ._attributes import (
     merge_attribute_values,
 )
 from ._utils import lazy_map
+from ._store_metadata import (
+    EmbeddedAttributesStoreMetadata,
+    attributes_schema_from_spec,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -64,7 +68,7 @@ _FILTERABLE_BASE_COLUMNS = {
 }
 
 
-@dataclass
+@dataclass(repr=False)
 class DuckDBMarkdownChunk(MarkdownChunk):
     """MarkdownChunk with DuckDB-specific fields for database storage"""
 
@@ -101,7 +105,7 @@ class DuckDBMarkdownChunk(MarkdownChunk):
         self.chunk_id = chunk_id
 
 
-@dataclass
+@dataclass(repr=False)
 class RetrievedDuckDBMarkdownChunk(DuckDBMarkdownChunk, RetrievedChunk):
     """DuckDBMarkdownChunk with retrieval metrics"""
 
@@ -136,7 +140,7 @@ class RetrievedDuckDBMarkdownChunk(DuckDBMarkdownChunk, RetrievedChunk):
 
 
 @dataclass
-class DuckDBStoreMetadata:
+class DuckDBStoreMetadata(EmbeddedAttributesStoreMetadata):
     name: str
     title: str
     embed: Optional[EmbeddingProvider]
@@ -148,7 +152,7 @@ class DuckDBStoreMetadata:
 
     @property
     def attributes_schema(self) -> dict[str, AttributeType]:
-        return {key: spec.attribute_type for key, spec in self.attributes.items()}
+        return attributes_schema_from_spec(self.attributes)
 
 
 class VSSMethod(StrEnum):
@@ -393,7 +397,7 @@ class DuckDBStore(BaseStore):
     def __init__(
         self,
         con: duckdb.DuckDBPyConnection,
-        metadata: DuckDBStoreMetadata,
+        metadata: EmbeddedAttributesStoreMetadata,
     ):
         self.con = con
         self.metadata = metadata
