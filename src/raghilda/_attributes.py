@@ -95,6 +95,10 @@ def normalize_attributes_spec(
     for key, item in schema_items.items():
         if not isinstance(key, str) or not key:
             raise ValueError("Attribute column names must be non-empty strings")
+        if "." in key:
+            raise ValueError(
+                f"Attribute column '{key}' cannot contain '.'; dots are reserved for nested object filter paths"
+            )
         if key in reserved:
             raise ValueError(f"Attribute column '{key}' is reserved")
 
