@@ -46,7 +46,8 @@ class AttributesStoreMetadata(Protocol):
 
         This is a projection of ``attributes_spec`` that keeps only
         ``AttributeType`` values. Stores use it to shape returned
-        ``chunk.attributes`` and determine filterable user attribute keys.
+        ``chunk.attributes``, determine filterable user attribute keys, and
+        document the attributes available to downstream prompt/context assembly.
         """
         ...
 

@@ -31,6 +31,8 @@ class Document:
         None if the document hasn't been chunked yet.
     attributes
         Optional user-defined attributes applied at document insertion time.
+        Document-level attributes can be inherited by chunks and returned
+        during retrieval for filtering and downstream prompt/context use.
     """
 
     content: str

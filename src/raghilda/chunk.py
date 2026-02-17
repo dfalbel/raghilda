@@ -27,7 +27,9 @@ class Chunk:
         Optional heading context showing the document hierarchy at this
         chunk's position (e.g., the Markdown headings that apply).
     attributes
-        Optional user-defined attributes for filtering and scoping retrieval.
+        Optional user-defined attributes associated with the chunk. These
+        attributes can be used for retrieval filtering/scoping and downstream
+        prompt/context construction.
     """
 
     text: str
@@ -44,11 +46,7 @@ class Chunk:
         for field_info in fields(self):
             key = field_info.name
             value = getattr(self, key)
-            formatted = (
-                repr(value)
-                if key == "text"
-                else pformat(value, width=84, sort_dicts=False)
-            )
+            formatted = pformat(value)
             formatted = formatted.replace("\n", "\n    ")
             output.append(f"  {key}={formatted},")
 
