@@ -12,6 +12,7 @@ from raghilda._duckdb_store import (
 )  # internal implementation
 from raghilda.embedding import EmbeddingOpenAI
 
+
 def _can_reach_openai(timeout: float = 2.0) -> bool:
     try:
         with socket.create_connection(("api.openai.com", 443), timeout=timeout):
@@ -810,7 +811,9 @@ class TestOpenAIStore:
         )
         assert len(results) > 0
         assert all(chunk.attributes["tenant"] == "docs" for chunk in results)
-        assert all(float(chunk.attributes["priority"]) in (2.0, 3.0) for chunk in results)
+        assert all(
+            float(chunk.attributes["priority"]) in (2.0, 3.0) for chunk in results
+        )
 
     def test_rejects_chunk_attributes(self, store_with_attributes):
         doc = MarkdownDocument(
