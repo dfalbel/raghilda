@@ -69,6 +69,8 @@ store = DuckDBStore.create(
 
 `ChromaDBStore` and `OpenAIStore` support scalar attribute types and class annotations, but reject vector attribute types.
 They also require all declared attributes to be required (no optional/defaulted attributes).
+Attribute names should use identifier-style syntax (letters, digits, and
+underscores only), so names cannot contain dots (`.`) or dashes (`-`).
 
 ## 2. Add Attributes During Insertion
 
@@ -152,3 +154,4 @@ In addition to declared attributes, some stores expose backend-managed columns t
 | `context` | Chunk context string (if provided during chunking). |
 
 `DuckDBStore` and `ChromaDBStore` support these names directly. `OpenAIStore` does not support built-in backend columns in `attributes_filter`; only declared attributes are filterable.
+Built-in backend columns are managed by the store and cannot be re-declared in `attributes=...`.
