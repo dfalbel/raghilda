@@ -15,7 +15,7 @@ def _can_reach_openai(timeout: float = 2.0) -> bool:
 class TestEmbeddingOpenAI:
     @pytest.fixture(autouse=True)
     def setup(self):
-        if "OPENAI_API_KEY" not in os.environ:
+        if not os.getenv("OPENAI_API_KEY"):
             pytest.skip("OPENAI_API_KEY not set in environment variables")
         if not _can_reach_openai():
             pytest.skip("OpenAI API is not reachable from this environment")

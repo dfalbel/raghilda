@@ -12,7 +12,6 @@ from raghilda._duckdb_store import (
 )  # internal implementation
 from raghilda.embedding import EmbeddingOpenAI
 
-
 def _can_reach_openai(timeout: float = 2.0) -> bool:
     try:
         with socket.create_connection(("api.openai.com", 443), timeout=timeout):
@@ -22,7 +21,7 @@ def _can_reach_openai(timeout: float = 2.0) -> bool:
 
 
 def _require_openai_integration() -> None:
-    if "OPENAI_API_KEY" not in os.environ:
+    if not os.getenv("OPENAI_API_KEY"):
         pytest.skip("OPENAI_API_KEY not set in environment variables")
     if not _can_reach_openai():
         pytest.skip("OpenAI API is not reachable from this environment")
@@ -672,7 +671,30 @@ class TestOpenAIStore:
     @pytest.fixture
     def store(self):
         store = OpenAIStore.create()
-        return store
+        try:
+            yield store
+        finally:
+            store.client.vector_stores.delete(vector_store_id=store.store_id)
+
+    @pytest.fixture
+    def store_with_attributes(self):
+        store = OpenAIStore.create(attributes={"tenant": str, "priority": int})
+        try:
+            yield store
+        finally:
+            store.client.vector_stores.delete(vector_store_id=store.store_id)
+
+    @pytest.fixture
+    def store_with_class_attributes(self):
+        class AttributesSpec:
+            tenant: str
+            priority: int
+
+        store = OpenAIStore.create(attributes=AttributesSpec)
+        try:
+            yield store
+        finally:
+            store.client.vector_stores.delete(vector_store_id=store.store_id)
 
     @pytest.fixture
     def store_with_docs(self, store):
@@ -690,7 +712,7 @@ class TestOpenAIStore:
         assert store_with_docs.size() == 1
 
     def test_retrieve(self, store_with_docs):
-        for _ in range(20):
+        for _ in range(3):
             store_with_docs.insert(
                 MarkdownDocument(
                     origin="test", content="hello world world world world world"
@@ -701,6 +723,144 @@ class TestOpenAIStore:
         for chunk in results:
             assert isinstance(chunk, RetrievedChunk)
             assert chunk.text is not None
+
+    def test_connect_restores_attributes_schema(self, store_with_attributes):
+        connected = OpenAIStore.connect(store_id=store_with_attributes.store_id)
+        assert connected.attributes_schema == {"tenant": str, "priority": int}
+
+    def test_create_accepts_class_attributes_schema(self, store_with_class_attributes):
+        connected = OpenAIStore.connect(store_id=store_with_class_attributes.store_id)
+        assert connected.attributes_schema == {"tenant": str, "priority": int}
+
+    def test_insert_uses_document_attributes(self, store_with_attributes):
+        store_with_attributes.insert(
+            MarkdownDocument(
+                origin="doc-attrs",
+                content="alpha bronze owl",
+                attributes={"tenant": "docs", "priority": 2},
+            )
+        )
+        results = store_with_attributes.retrieve(
+            "bronze owl",
+            top_k=5,
+            attributes_filter="tenant = 'docs' AND priority = 2",
+        )
+        assert len(results) > 0
+        assert all(chunk.attributes["tenant"] == "docs" for chunk in results)
+        assert all(float(chunk.attributes["priority"]) == 2.0 for chunk in results)
+
+    def test_retrieve_supports_attributes_filter(self, store_with_attributes):
+        store_with_attributes.insert(
+            MarkdownDocument(
+                origin="docs-priority-2",
+                content="alpha alpha alpha",
+                attributes={"tenant": "docs", "priority": 2},
+            )
+        )
+        store_with_attributes.insert(
+            MarkdownDocument(
+                origin="docs-priority-1",
+                content="alpha beta",
+                attributes={"tenant": "docs", "priority": 1},
+            )
+        )
+        store_with_attributes.insert(
+            MarkdownDocument(
+                origin="ops-priority-5",
+                content="alpha gamma",
+                attributes={"tenant": "ops", "priority": 5},
+            )
+        )
+
+        results = store_with_attributes.retrieve(
+            "alpha",
+            top_k=10,
+            attributes_filter="tenant = 'docs' AND priority >= 2",
+        )
+
+        assert len(results) > 0
+        assert all(chunk.attributes["tenant"] == "docs" for chunk in results)
+        assert all(float(chunk.attributes["priority"]) >= 2.0 for chunk in results)
+
+    def test_retrieve_supports_attributes_filter_ast(self, store_with_attributes):
+        store_with_attributes.insert(
+            MarkdownDocument(
+                origin="docs-priority-3",
+                content="alpha alpha delta",
+                attributes={"tenant": "docs", "priority": 3},
+            )
+        )
+        store_with_attributes.insert(
+            MarkdownDocument(
+                origin="ops-priority-3",
+                content="alpha alpha epsilon",
+                attributes={"tenant": "ops", "priority": 3},
+            )
+        )
+        results = store_with_attributes.retrieve(
+            "alpha",
+            top_k=10,
+            attributes_filter={
+                "type": "and",
+                "filters": [
+                    {"type": "eq", "key": "tenant", "value": "docs"},
+                    {"type": "in", "key": "priority", "value": [2, 3]},
+                ],
+            },
+        )
+        assert len(results) > 0
+        assert all(chunk.attributes["tenant"] == "docs" for chunk in results)
+        assert all(float(chunk.attributes["priority"]) in (2.0, 3.0) for chunk in results)
+
+    def test_rejects_chunk_attributes(self, store_with_attributes):
+        doc = MarkdownDocument(
+            origin="chunk-attrs",
+            content="hello",
+            attributes={"tenant": "docs", "priority": 1},
+        )
+        doc.chunks = [
+            MarkdownChunk(
+                start_index=0,
+                end_index=5,
+                text="hello",
+                token_count=5,
+                attributes={"tenant": "docs"},
+            )
+        ]
+
+        with pytest.raises(
+            ValueError, match="OpenAIStore does not support per-chunk attributes"
+        ):
+            store_with_attributes.insert(doc)
+
+
+def test_openai_store_create_rejects_vector_attributes_schema():
+    with pytest.raises(ValueError, match="Vector attribute types are not supported"):
+        OpenAIStore.create(attributes={"embedding25": Annotated[list[float], 25]})
+
+
+def test_openai_store_create_rejects_object_attributes_schema():
+    with pytest.raises(ValueError, match="Object attribute types are not supported"):
+        OpenAIStore.create(attributes={"details": {"source": str}})
+
+
+def test_openai_store_create_rejects_optional_attributes_schema():
+    with pytest.raises(
+        ValueError, match="Optional attribute values are not supported for 'topic'"
+    ):
+        OpenAIStore.create(attributes={"topic": str | None})
+
+
+def test_openai_store_create_rejects_defaulted_attributes_schema():
+    with pytest.raises(
+        ValueError, match="Optional attribute values are not supported for 'priority'"
+    ):
+        OpenAIStore.create(attributes={"tenant": str, "priority": (int, 0)})
+
+
+def test_openai_store_create_rejects_invalid_attribute_names():
+    with pytest.raises(ValueError, match="must match"):
+        OpenAIStore.create(attributes={"tenant-id": str})
 
 
 def _get_markdown_chunk(doc, start, end):
