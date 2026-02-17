@@ -42,10 +42,7 @@ class BaseStore(ABC):
         pass
 
     @abstractmethod
-    def insert(
-        self,
-        document: Document,
-    ) -> None:
+    def insert(self, document: Document) -> None:
         """Insert a document into the store.
 
         The document will be chunked and embedded before storage.

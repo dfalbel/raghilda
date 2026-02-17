@@ -145,12 +145,10 @@ class DuckDBStoreMetadata(EmbeddedAttributesStoreMetadata):
 
     @property
     def attributes_spec(self) -> dict[str, AttributeSpec]:
-        """Full attribute declarations (type + required/nullable/default rules)."""
         return self.attributes
 
     @property
     def attributes_schema(self) -> dict[str, AttributeType]:
-        """Type-only attribute view derived from `attributes_spec`."""
         return attributes_schema_from_spec(self.attributes)
 
 
