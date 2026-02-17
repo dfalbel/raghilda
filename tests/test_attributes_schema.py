@@ -179,6 +179,22 @@ def test_normalize_attributes_spec_rejects_hyphenated_nested_field_names():
         )
 
 
+def test_normalize_attributes_spec_rejects_reserved_keyword_top_level_name():
+    with pytest.raises(ValueError, match="reserved"):
+        normalize_attributes_spec(
+            {"or": str},
+            reserved_columns=set(),
+        )
+
+
+def test_normalize_attributes_spec_rejects_reserved_keyword_nested_field_name():
+    with pytest.raises(ValueError, match="reserved"):
+        normalize_attributes_spec(
+            {"details": {"null": str}},
+            reserved_columns=set(),
+        )
+
+
 def test_attributes_spec_from_json_rejects_optional_values_when_not_supported():
     with pytest.raises(
         ValueError, match="Optional attribute values are not supported for 'topic'"

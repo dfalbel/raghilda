@@ -76,6 +76,16 @@ _ATTRIBUTE_NAME_TO_SCALAR_TYPE: dict[str, AttributeScalarType] = {
 }
 _FLOAT_VECTOR_TYPE_PATTERN = re.compile(r"^float_vector\[(\d+)\]$")
 _ATTRIBUTE_NAME_PATTERN = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+_ATTRIBUTE_FILTER_RESERVED_KEYWORDS = {
+    "AND",
+    "OR",
+    "IN",
+    "IS",
+    "NOT",
+    "TRUE",
+    "FALSE",
+    "NULL",
+}
 
 
 def normalize_attributes_schema(
@@ -742,4 +752,8 @@ def _validate_attribute_name(name: Any, *, kind: str) -> None:
     if _ATTRIBUTE_NAME_PATTERN.fullmatch(name) is None:
         raise ValueError(
             f"{kind} '{name}' must match [A-Za-z_][A-Za-z0-9_]* (letters, digits, underscores only; no dots or dashes)"
+        )
+    if name.upper() in _ATTRIBUTE_FILTER_RESERVED_KEYWORDS:
+        raise ValueError(
+            f"{kind} '{name}' is reserved in string attributes_filter expressions"
         )
