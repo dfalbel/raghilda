@@ -1,4 +1,5 @@
 """Tests for compatibility with chonkie types and chunkers."""
+# ruff: noqa: E402
 
 import pytest
 
