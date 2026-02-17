@@ -50,6 +50,13 @@ class AttributeSpec:
     default: AttributeValue = None
 
 
+@dataclass(frozen=True)
+class _SchemaItem:
+    annotation: Any
+    has_default: bool
+    default: Any
+
+
 _ATTRIBUTE_SCALAR_TYPE_TO_NAME: dict[AttributeScalarType, str] = {
     str: "str",
     int: "int",
@@ -104,51 +111,22 @@ def normalize_attributes_spec(
 
         attribute_type, nullable = _parse_attribute_type(
             key=key,
-            annotation=item["annotation"],
+            annotation=item.annotation,
             allow_vector_types=allow_vector_types,
             allow_struct_types=allow_struct_types,
         )
-        has_default = item["has_default"]
-        default_value = item["default"]
-
-        if has_default:
-            required = False
-        elif nullable:
-            required = False
-            default_value = None
-        else:
-            required = True
-
-        if not allow_optional_values and not required:
-            raise ValueError(
-                f"Optional attribute values are not supported for '{key}' in this backend"
-            )
-
-        if required:
-            spec[key] = AttributeSpec(
-                attribute_type=attribute_type,
-                nullable=nullable,
-                required=True,
-            )
-            continue
-
-        if default_value is None and not nullable:
-            raise ValueError(
-                f"Default None for attribute '{key}' requires an optional type annotation"
-            )
-
-        normalized_default = _normalize_attribute_value(
-            key,
-            default_value,
-            attribute_type,
-            context="default attribute",
-            allow_none=nullable,
-        )
-        spec[key] = AttributeSpec(
+        required = not item.has_default and not nullable
+        default_value = item.default if item.has_default else None
+        spec[key] = _build_attribute_spec(
+            key=key,
             attribute_type=attribute_type,
             nullable=nullable,
-            required=False,
-            default=normalized_default,
+            required=required,
+            default_value=default_value,
+            allow_optional_values=allow_optional_values,
+            default_none_error_message=(
+                f"Default None for attribute '{key}' requires an optional type annotation"
+            ),
         )
 
     return spec
@@ -156,28 +134,28 @@ def normalize_attributes_spec(
 
 def _attributes_schema_items(
     attributes: Optional[AttributesSchemaSpec],
-) -> dict[str, dict[str, Any]]:
+) -> dict[str, _SchemaItem]:
     if attributes is None:
         return {}
     if isinstance(attributes, Mapping):
-        out: dict[str, dict[str, Any]] = {}
+        out: dict[str, _SchemaItem] = {}
         for key, value in attributes.items():
             if isinstance(value, tuple):
                 if len(value) != 2:
                     raise ValueError(
                         f"Attribute schema tuple for '{key}' must be (type, default)"
                     )
-                out[key] = {
-                    "annotation": value[0],
-                    "has_default": True,
-                    "default": value[1],
-                }
+                out[key] = _SchemaItem(
+                    annotation=value[0],
+                    has_default=True,
+                    default=value[1],
+                )
             else:
-                out[key] = {
-                    "annotation": value,
-                    "has_default": False,
-                    "default": None,
-                }
+                out[key] = _SchemaItem(
+                    annotation=value,
+                    has_default=False,
+                    default=None,
+                )
         return out
     if isinstance(attributes, type):
         try:
@@ -187,22 +165,49 @@ def _attributes_schema_items(
                 f"Failed to parse attribute annotations from '{attributes.__name__}': {e}"
             )
         class_vars = vars(attributes)
-        out: dict[str, dict[str, Any]] = {}
+        out: dict[str, _SchemaItem] = {}
         for key, annotation in annotations.items():
-            if key in class_vars:
-                out[key] = {
-                    "annotation": annotation,
-                    "has_default": True,
-                    "default": class_vars[key],
-                }
-            else:
-                out[key] = {
-                    "annotation": annotation,
-                    "has_default": False,
-                    "default": None,
-                }
+            has_default = key in class_vars
+            out[key] = _SchemaItem(
+                annotation=annotation,
+                has_default=has_default,
+                default=class_vars[key] if has_default else None,
+            )
         return out
     raise ValueError("attributes must be a mapping or a class with type annotations")
+
+
+def _build_attribute_spec(
+    *,
+    key: str,
+    attribute_type: AttributeType,
+    nullable: bool,
+    required: bool,
+    default_value: Any,
+    allow_optional_values: bool,
+    default_none_error_message: str,
+) -> AttributeSpec:
+    if not allow_optional_values and not required:
+        raise ValueError(
+            f"Optional attribute values are not supported for '{key}' in this backend"
+        )
+    normalized_default: AttributeValue = None
+    if not required:
+        if default_value is None and not nullable:
+            raise ValueError(default_none_error_message)
+        normalized_default = _normalize_attribute_value(
+            key,
+            default_value,
+            attribute_type,
+            context="default attribute",
+            allow_none=nullable,
+        )
+    return AttributeSpec(
+        attribute_type=attribute_type,
+        nullable=nullable,
+        required=required,
+        default=normalized_default,
+    )
 
 
 def _parse_attribute_type(
@@ -453,32 +458,16 @@ def attributes_spec_from_json_dict(
             allow_vector_types=allow_vector_types,
             allow_struct_types=allow_struct_types,
         )
-
-        if required:
-            out[key] = AttributeSpec(
-                attribute_type=attribute_type,
-                nullable=nullable,
-                required=True,
-            )
-            continue
-
-        default_raw = payload.get("default")
-        if default_raw is None and not nullable:
-            raise ValueError(
-                f"Default None for attribute '{key}' requires nullable=true in serialized spec"
-            )
-        default_value = _normalize_attribute_value(
-            key,
-            default_raw,
-            attribute_type,
-            context="default attribute",
-            allow_none=nullable,
-        )
-        out[key] = AttributeSpec(
+        out[key] = _build_attribute_spec(
+            key=key,
             attribute_type=attribute_type,
             nullable=nullable,
-            required=False,
-            default=default_value,
+            required=required,
+            default_value=payload.get("default"),
+            allow_optional_values=allow_optional_values,
+            default_none_error_message=(
+                f"Default None for attribute '{key}' requires nullable=true in serialized spec"
+            ),
         )
     return out
 
@@ -757,6 +746,14 @@ class FilterLogical:
 FilterNode = FilterComparison | FilterLogical
 
 
+def _normalize_allowed_filter_columns(
+    allowed_columns: Optional[Iterable[str]],
+) -> Optional[set[str]]:
+    if allowed_columns is None:
+        return None
+    return set(allowed_columns)
+
+
 def compile_filter_to_sql(
     attributes_filter: Optional[AttributeFilter],
     *,
@@ -795,20 +792,19 @@ def _parse_filter_or_none(
     *,
     allowed_columns: Optional[Iterable[str]],
 ) -> Optional[FilterNode]:
+    allowed_column_set = _normalize_allowed_filter_columns(allowed_columns)
     if attributes_filter is None:
         return None
     if isinstance(attributes_filter, str):
         text = attributes_filter.strip()
         if not text:
             return None
-        parser = _FilterParser(text, allowed_columns=allowed_columns)
+        parser = _FilterParser(text, allowed_columns=allowed_column_set)
         return parser.parse()
     if isinstance(attributes_filter, Mapping):
         return _parse_filter_mapping_node(
             attributes_filter,
-            allowed_columns=(
-                set(allowed_columns) if allowed_columns is not None else None
-            ),
+            allowed_columns=allowed_column_set,
         )
     raise TypeError(
         f"attributes_filter must be a string or mapping, got {type(attributes_filter).__name__}"
@@ -906,12 +902,10 @@ def _validate_allowed_filter_column(
 
 
 class _FilterParser:
-    def __init__(self, text: str, *, allowed_columns: Optional[Iterable[str]]):
+    def __init__(self, text: str, *, allowed_columns: Optional[set[str]]):
         self._tokens = _tokenize_filter(text)
         self._idx = 0
-        self._allowed_columns = (
-            set(allowed_columns) if allowed_columns is not None else None
-        )
+        self._allowed_columns = allowed_columns
 
     def parse(self) -> FilterNode:
         node = self._parse_or()
@@ -974,7 +968,7 @@ class _FilterParser:
             "<": "lt",
             "<=": "lte",
         }
-        operator = op_map[token.value]
+        operator = op_map[cast(str, token.value)]
         value = self._parse_literal_value()
         _validate_null_comparison_operator(operator=operator, value=value)
         if value is None and operator in {"eq", "ne"}:
