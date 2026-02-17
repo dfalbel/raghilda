@@ -15,7 +15,13 @@ You can declare attribute schema types in three ways:
 4. `Annotated[list[float], N]` for fixed-size vectors (DuckDB only)
 
 ```{python}
-#| eval: false
+# | include: false
+from pathlib import Path
+
+Path("docs.duckdb").unlink(missing_ok=True)
+```
+
+```{python}
 from typing import Annotated
 from raghilda.store import DuckDBStore
 
@@ -26,8 +32,8 @@ class AttributesSpec:
     topic: str | None = None    # optional, default None
 
 # 1) Dict with Python scalar types
-store = DuckDBStore.create(
-    location="docs.duckdb",
+store_dict = DuckDBStore.create(
+    location=":memory:",
     embed=None,
     attributes={
         "tenant": str,
@@ -38,15 +44,15 @@ store = DuckDBStore.create(
 )
 
 # 2) Class annotations
-store = DuckDBStore.create(
-    location="docs.duckdb",
+store_class = DuckDBStore.create(
+    location=":memory:",
     embed=None,
     attributes=AttributesSpec,
 )
 
 # 3) Dict with explicit defaults
-store = DuckDBStore.create(
-    location="docs.duckdb",
+store_defaults = DuckDBStore.create(
+    location=":memory:",
     embed=None,
     attributes={
         "tenant": str,                # required
@@ -57,14 +63,19 @@ store = DuckDBStore.create(
 )
 
 # 4) DuckDB fixed-size vector attributes
-store = DuckDBStore.create(
-    location="docs.duckdb",
+store_vector = DuckDBStore.create(
+    location=":memory:",
     embed=None,
     attributes={
         "tenant": str,
         "embedding25": Annotated[list[float], 25],
     },
 )
+
+print("dict:", store_dict.metadata.attributes_schema)
+print("class:", store_class.metadata.attributes_schema)
+print("defaults:", store_defaults.metadata.attributes_schema)
+print("vector:", store_vector.metadata.attributes_schema)
 ```
 
 `ChromaDBStore` and `OpenAIStore` support scalar attribute types and class annotations, but reject vector attribute types.
@@ -77,14 +88,29 @@ underscores only), so names cannot contain dots (`.`) or dashes (`-`).
 Use document-level attributes and optional per-chunk attributes:
 
 ```{python}
-#| eval: false
 from raghilda.document import MarkdownDocument
 from raghilda.chunk import MarkdownChunk
+
+store = DuckDBStore.create(
+    location=":memory:",
+    embed=None,
+    attributes={
+        "tenant": str,
+        "topic": str,
+        "priority": int,
+        "is_public": bool,
+    },
+)
 
 doc = MarkdownDocument(
     origin="guide.md",
     content="alpha beta gamma",
-    attributes={"tenant": "docs", "topic": "reference"},
+    attributes={
+        "tenant": "docs",
+        "topic": "reference",
+        "priority": 0,
+        "is_public": True,
+    },
 )
 doc.chunks = [
     MarkdownChunk(text="alpha", start_index=0, end_index=5, token_count=5),
@@ -97,6 +123,8 @@ doc.chunks = [
     ),
 ]
 store.insert(doc)
+store.build_index("bm25")
+print(f"Indexed documents: {store.size()}")
 ```
 
 Chunk attributes override document attributes for that chunk only.
@@ -108,18 +136,17 @@ Optional attributes use their declared defaults.
 The `attributes_filter` string is a SQL-like predicate:
 
 ```{python}
-#| eval: false
 chunks = store.retrieve(
     "beta",
     top_k=5,
     attributes_filter="tenant = 'docs' AND priority >= 5 AND is_public = FALSE",
 )
+print([{"text": c.text, "attributes": c.attributes} for c in chunks])
 ```
 
 You can also pass a dict filter AST instead of a string:
 
 ```{python}
-#| eval: false
 chunks = store.retrieve(
     "beta",
     top_k=5,
@@ -131,6 +158,7 @@ chunks = store.retrieve(
         ],
     },
 )
+print([{"text": c.text, "attributes": c.attributes} for c in chunks])
 ```
 
 Supported operators:
