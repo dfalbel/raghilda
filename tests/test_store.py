@@ -10,6 +10,7 @@ from raghilda._attributes import AttributeFloatVectorType
 from raghilda._duckdb_store import (
     RetrievedDuckDBMarkdownChunk,
 )  # internal implementation
+from raghilda._openai_store import _normalize_openai_attributes
 from raghilda.embedding import EmbeddingOpenAI
 
 
@@ -647,6 +648,62 @@ class TestDuckDBStore:
         with pytest.raises(ValueError, match="Unknown attribute key 'unknown'"):
             store.insert(doc)
 
+    def test_insert_rejects_float_for_int_attribute(self):
+        store = DuckDBStore.create(
+            location=":memory:",
+            embed=None,
+            overwrite=True,
+            attributes={"priority": int},
+        )
+
+        doc = MarkdownDocument(
+            origin="type-mismatch-float-for-int",
+            content="hello",
+            attributes={"priority": 1.5},
+        )
+        doc.chunks = [
+            MarkdownChunk(
+                start_index=0,
+                end_index=5,
+                text="hello",
+                token_count=5,
+            )
+        ]
+
+        with pytest.raises(
+            ValueError,
+            match="Invalid value for attributes 'priority': expected int, got float",
+        ):
+            store.insert(doc)
+
+    def test_insert_rejects_int_for_float_attribute(self):
+        store = DuckDBStore.create(
+            location=":memory:",
+            embed=None,
+            overwrite=True,
+            attributes={"score": float},
+        )
+
+        doc = MarkdownDocument(
+            origin="type-mismatch-int-for-float",
+            content="hello",
+            attributes={"score": 1},
+        )
+        doc.chunks = [
+            MarkdownChunk(
+                start_index=0,
+                end_index=5,
+                text="hello",
+                token_count=5,
+            )
+        ]
+
+        with pytest.raises(
+            ValueError,
+            match="Invalid value for attributes 'score': expected float, got int",
+        ):
+            store.insert(doc)
+
     def test_connect_restores_attributes_schema(self, tmp_path):
         db_path = tmp_path / "attributes-connect.db"
         store = DuckDBStore.create(
@@ -840,6 +897,28 @@ class TestOpenAIStore:
 def test_openai_store_create_rejects_vector_attributes_schema():
     with pytest.raises(ValueError, match="Vector attribute types are not supported"):
         OpenAIStore.create(attributes={"embedding25": Annotated[list[float], 25]})
+
+
+def test_openai_store_normalize_attributes_preserves_large_ints():
+    normalized = _normalize_openai_attributes(
+        {
+            "tenant_id": 9007199254740992,
+            "doc_id": 9007199254740993,
+            "score": 0.75,
+            "active": True,
+            "label": "docs",
+        }
+    )
+    assert normalized == {
+        "tenant_id": 9007199254740992,
+        "doc_id": 9007199254740993,
+        "score": 0.75,
+        "active": True,
+        "label": "docs",
+    }
+    assert isinstance(normalized["tenant_id"], int)
+    assert isinstance(normalized["doc_id"], int)
+    assert isinstance(normalized["score"], float)
 
 
 def test_openai_store_create_rejects_object_attributes_schema():

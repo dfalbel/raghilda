@@ -363,8 +363,8 @@ class OpenAIStore(BaseStore):
 
 def _normalize_openai_attributes(
     attributes: Mapping[str, AttributeValue],
-) -> dict[str, str | float | bool]:
-    out: dict[str, str | float | bool] = {}
+) -> dict[str, str | int | float | bool]:
+    out: dict[str, str | int | float | bool] = {}
     for key, value in attributes.items():
         if value is None:
             continue
@@ -372,8 +372,10 @@ def _normalize_openai_attributes(
             out[key] = value
         elif isinstance(value, str):
             out[key] = value
-        elif isinstance(value, (int, float)):
-            out[key] = float(value)
+        elif isinstance(value, int):
+            out[key] = value
+        elif isinstance(value, float):
+            out[key] = value
         else:
             raise ValueError(
                 f"Unsupported OpenAI attribute type for '{key}': {type(value).__name__}"

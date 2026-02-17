@@ -473,28 +473,18 @@ def _emit_openai_filters(node: FilterNode) -> dict[str, Any]:
 
     value = node.value
     if isinstance(value, list):
-        coerced_list: list[str | float] = []
         for item in value:
-            if isinstance(item, str):
-                coerced_list.append(item)
-            elif isinstance(item, bool):
+            # bool is a subclass of int, but OpenAI IN/NIN does not support booleans.
+            if isinstance(item, bool):
                 raise ValueError(
                     "Boolean values are not supported in IN/NIN for OpenAI filters"
                 )
-            elif isinstance(item, (int, float)):
-                coerced_list.append(float(item))
-            else:
+            if not isinstance(item, (str, int, float)):
                 raise ValueError(
                     f"Unsupported filter value type: {type(item).__name__}"
                 )
-        value = coerced_list
-    elif isinstance(value, bool):
-        pass
-    elif isinstance(value, str):
-        pass
-    elif isinstance(value, (int, float)):
-        value = float(value)
-    else:
+        value = cast(list[str | int | float], value)
+    elif not isinstance(value, (bool, str, int, float)):
         raise ValueError(f"Unsupported filter value type: {type(value).__name__}")
 
     return {

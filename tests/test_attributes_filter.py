@@ -101,6 +101,36 @@ def test_compile_filter_to_openai_filters():
     }
 
 
+def test_compile_filter_to_openai_filters_preserves_large_int_scalar():
+    large_int = 9007199254740993
+    filters = compile_filter_to_openai_filters(
+        {"type": "eq", "key": "doc_id", "value": large_int},
+        allowed_columns={"doc_id"},
+    )
+    assert filters is not None
+    assert filters == {
+        "type": "eq",
+        "key": "doc_id",
+        "value": large_int,
+    }
+    assert isinstance(filters["value"], int)
+
+
+def test_compile_filter_to_openai_filters_preserves_large_int_list_items():
+    large_int = 9007199254740993
+    filters = compile_filter_to_openai_filters(
+        {"type": "in", "key": "doc_id", "value": [9007199254740992, large_int]},
+        allowed_columns={"doc_id"},
+    )
+    assert filters is not None
+    assert filters == {
+        "type": "in",
+        "key": "doc_id",
+        "value": [9007199254740992, large_int],
+    }
+    assert all(isinstance(value, int) for value in filters["value"])
+
+
 def test_compile_filter_to_chroma_where_rejects_null():
     with pytest.raises(ValueError, match="NULL is not supported in Chroma"):
         compile_filter_to_chroma_where(

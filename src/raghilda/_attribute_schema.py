@@ -680,9 +680,7 @@ def _normalize_attribute_value(
     elif attribute_type is int:
         ok = isinstance(value, int) and not isinstance(value, bool)
     elif attribute_type is float:
-        ok = (isinstance(value, int) and not isinstance(value, bool)) or isinstance(
-            value, float
-        )
+        ok = isinstance(value, float)
     else:
         ok = False
 
