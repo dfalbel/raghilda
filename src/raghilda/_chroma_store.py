@@ -352,6 +352,10 @@ class ChromaDBStore(BaseStore):
             Additional metadata to attach to the Chroma collection.
         attributes
             Optional schema for user-defined attribute columns.
+            Attribute names use identifier-style syntax.
+            Chroma also provides built-in filterable columns:
+            `doc_id`, `chunk_id`, `start_index`, `end_index`, `token_count`,
+            `context`, and `origin`.
         client
             Optional pre-configured Chroma client (e.g., HttpClient).
 
@@ -633,7 +637,9 @@ class ChromaDBStore(BaseStore):
             If True (default), merge overlapping chunks from the same document.
             Overlapping chunks are identified by their `start_index` and `end_index`
             positions. When merged, the resulting chunk spans the union of the
-            original ranges and combines their metrics.
+            original ranges, combines metrics, and aggregates attribute values
+            into per-chunk lists in start-order. The `context` value is kept
+            from the first chunk in each merged overlap group.
         attributes_filter
             Optional attribute filter as SQL-like string or dict AST.
             Example string: `"tenant = 'docs' AND priority >= 2"`.

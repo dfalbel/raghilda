@@ -273,6 +273,9 @@ class DuckDBStore(BaseStore):
         attributes
             Optional schema for user-defined attribute columns stored per chunk.
             Example: `{"tenant": str, "priority": int}`.
+            Attribute names use identifier-style syntax.
+            Built-in backend columns that cannot be declared as attributes are:
+            `doc_id`, `chunk_id`, `origin`, `start_index`, `end_index`, and `context`.
 
         Returns
         -------
@@ -599,7 +602,9 @@ class DuckDBStore(BaseStore):
             If True (default), merge overlapping chunks from the same document.
             Overlapping chunks are identified by their `start_index` and `end_index`
             positions. When merged, the resulting chunk spans the union of the
-            original ranges and combines their metrics.
+            original ranges, combines metrics, and aggregates attribute values
+            into per-chunk lists in start-order. The `context` value is kept
+            from the first chunk in each merged overlap group.
         attributes_filter
             Optional filter to scope retrieval using attribute columns.
             Can be a SQL-like string or a dict AST.

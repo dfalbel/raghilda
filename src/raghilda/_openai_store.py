@@ -131,6 +131,8 @@ class OpenAIStore(BaseStore):
             OpenAI API key. If None, uses the OPENAI_API_KEY environment variable.
         attributes
             Optional schema for user-defined attribute columns.
+            Attribute names use identifier-style syntax.
+            OpenAIStore filters only support declared attributes.
         metadata
             Additional metadata to attach to the OpenAI vector store resource.
         **kwargs
@@ -189,6 +191,7 @@ class OpenAIStore(BaseStore):
         attributes
             Optional schema for user-defined attribute columns. If omitted,
             schema is loaded from the vector store metadata when available.
+            Attribute names use identifier-style syntax.
 
         Returns
         -------
