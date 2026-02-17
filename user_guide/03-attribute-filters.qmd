@@ -138,10 +138,17 @@ Supported operators:
 - `AND`, `OR`, parentheses
 - `NULL` comparisons through `IS NULL` / `IS NOT NULL` (DuckDB only)
 
-## Notes by Backend
+## Backend Built-In Columns
 
-- `DuckDBStore`: attribute columns are real table columns and filter strings compile to SQL `WHERE` clauses.
-- `ChromaDBStore`: the same filter string compiles to Chroma `where` filters.
-- `OpenAIStore`: attributes are stored as file attributes; store-level metadata stays on the vector store resource.
-- `ChromaDBStore` and `OpenAIStore` do not support `NULL` in `attributes_filter`.
-- `ChromaDBStore` and `OpenAIStore` reject optional/defaulted attribute declarations.
+In addition to declared attributes, some stores expose backend-managed columns that can be used in `attributes_filter`. The canonical built-in columns are:
+
+| Column | Meaning |
+|---|---|
+| `doc_id` | Document identifier (`Document.id`) for the chunk's parent document. |
+| `chunk_id` | Chunk index within the document (0-based insertion order). |
+| `origin` | Source location from `MarkdownDocument.origin` (path, URL, or other source label). |
+| `start_index` | Chunk start character offset in the document text. |
+| `end_index` | Chunk end character offset in the document text. |
+| `context` | Chunk context string (if provided during chunking). |
+
+`DuckDBStore` and `ChromaDBStore` support these names directly. `OpenAIStore` does not support built-in backend columns in `attributes_filter`; only declared attributes are filterable.

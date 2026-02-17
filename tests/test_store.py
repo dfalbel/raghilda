@@ -231,8 +231,13 @@ class TestDuckDBStore:
         assert results[0].attributes is not None
         assert results[0].attributes["embedding25"] == pytest.approx(vector)
 
-        assert "tenant" in store._filterable_columns()
-        assert "embedding25" not in store._filterable_columns()
+        filterable_columns = store._filterable_columns()
+        assert "tenant" in filterable_columns
+        assert "start_index" in filterable_columns
+        assert "end_index" in filterable_columns
+        assert "start" not in filterable_columns
+        assert "end" not in filterable_columns
+        assert "embedding25" not in filterable_columns
 
         with pytest.raises(ValueError, match="Unknown attribute column 'embedding25'"):
             store.retrieve(
@@ -326,6 +331,23 @@ class TestDuckDBStore:
         )
         assert len(dict_results) == 1
         assert dict_results[0].text.strip() == "alpha"
+
+        positional_results = store.retrieve(
+            "alpha",
+            top_k=10,
+            deoverlap=False,
+            attributes_filter="start_index = 0 AND end_index = 5",
+        )
+        assert len(positional_results) == 1
+        assert positional_results[0].text.strip() == "alpha"
+
+        with pytest.raises(ValueError, match="Unknown attribute column 'start'"):
+            store.retrieve(
+                "alpha",
+                top_k=10,
+                deoverlap=False,
+                attributes_filter="start = 0",
+            )
 
     def test_insert_preserves_declared_id_attribute(self):
         store = DuckDBStore.create(

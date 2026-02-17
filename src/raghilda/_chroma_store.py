@@ -639,6 +639,9 @@ class ChromaDBStore(BaseStore):
         attributes_filter
             Optional attribute filter as SQL-like string or dict AST.
             Example string: `"tenant = 'docs' AND priority >= 2"`.
+            Supports declared attributes plus built-in columns:
+            `doc_id`, `chunk_id`, `start_index`, `end_index`,
+            `token_count`, `context`, and `origin`.
         **kwargs
             Additional arguments passed to ChromaDB's `query()` method.
 

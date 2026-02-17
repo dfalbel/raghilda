@@ -302,6 +302,26 @@ class OpenAIStore(BaseStore):
         attributes_filter: Optional[AttributeFilter] = None,
         **kwargs,
     ) -> Sequence[RetrievedOpenAIMarkdownChunk]:
+        """Retrieve the most similar chunks to the given text.
+
+        Parameters
+        ----------
+        text
+            The query text to search for.
+        top_k
+            The maximum number of chunks to return.
+        attributes_filter
+            Optional attribute filter as SQL-like string or dict AST.
+            Supports declared attributes only. Built-in columns such as
+            `doc_id` and `origin` are not available in OpenAI filters.
+        **kwargs
+            Additional arguments passed to OpenAI's `vector_stores.search()`.
+
+        Returns
+        -------
+        Sequence[RetrievedOpenAIMarkdownChunk]
+            The retrieved chunks with their relevance metrics.
+        """
         if attributes_filter is not None:
             if "filters" in kwargs:
                 raise ValueError("Use either attributes_filter or filters, not both.")

@@ -44,8 +44,6 @@ logger = logging.getLogger(__name__)
 _RESERVED_SYSTEM_COLUMNS = {
     "doc_id",
     "chunk_id",
-    "start",
-    "end",
     "context",
     "embedding",
     "origin",
@@ -61,8 +59,8 @@ _FILTERABLE_BASE_COLUMNS = {
     "doc_id",
     "chunk_id",
     "origin",
-    "start",
-    "end",
+    "start_index",
+    "end_index",
     "context",
 }
 
@@ -345,9 +343,9 @@ class DuckDBStore(BaseStore):
             doc_id VARCHAR NOT NULL,
             FOREIGN KEY (doc_id) REFERENCES documents (doc_id),
             chunk_id INTEGER DEFAULT nextval('chunk_id_seq'),
-            start INTEGER,
-            "end" INTEGER,
-            PRIMARY KEY (doc_id, start, "end"),
+            start_index INTEGER,
+            end_index INTEGER,
+            PRIMARY KEY (doc_id, start_index, end_index),
             context VARCHAR{tail_columns_sql}
         );
 
@@ -355,7 +353,7 @@ class DuckDBStore(BaseStore):
             SELECT
             d.origin as origin,
             e.*,
-            d.text[ e.start : e."end" ] as text
+            d.text[ e.start_index : e.end_index ] as text
             FROM
             documents d
             JOIN
@@ -542,10 +540,6 @@ class DuckDBStore(BaseStore):
         else:
             chunks.drop(columns=["embedding"], inplace=True, errors="ignore")
 
-        # Map Chunk field names to database field names
-        chunks.rename(
-            columns={"start_index": "start", "end_index": "end"}, inplace=True
-        )
         # Remove token_count since it's not stored in the database
         if "token_count" in chunks.columns:
             chunks.drop(columns=["token_count"], inplace=True)
@@ -612,6 +606,8 @@ class DuckDBStore(BaseStore):
             Optional filter to scope retrieval using attribute columns.
             Can be a SQL-like string or a dict AST.
             Example string: `"tenant = 'docs' AND priority >= 2"`.
+            Supports declared attributes plus built-in columns:
+            `doc_id`, `chunk_id`, `origin`, `start_index`, `end_index`, and `context`.
 
         Returns
         -------
@@ -679,6 +675,8 @@ class DuckDBStore(BaseStore):
             - `NEGATIVE_INNER_PRODUCT`: Negative dot product
         attributes_filter
             Optional attribute filter as SQL-like string or dict AST.
+            Supports declared attributes plus built-in columns:
+            `doc_id`, `chunk_id`, `origin`, `start_index`, `end_index`, and `context`.
 
         Returns
         -------
@@ -727,11 +725,11 @@ class DuckDBStore(BaseStore):
         SELECT
             e.doc_id,
             e.chunk_id,
-            e.start AS start_index,
-            e.end AS end_index,
+            e.start_index,
+            e.end_index,
             e.context,
             {attribute_select}
-            doc.text[ e.start: e.end ] AS text,
+            doc.text[ e.start_index: e.end_index ] AS text,
             '{method}' AS metric_name,
             {metric_value_sql} AS metric_value
         FROM {source_sql}
@@ -801,6 +799,8 @@ class DuckDBStore(BaseStore):
             any query term can match (OR).
         attributes_filter
             Optional attribute filter as SQL-like string or dict AST.
+            Supports declared attributes plus built-in columns:
+            `doc_id`, `chunk_id`, `origin`, `start_index`, `end_index`, and `context`.
 
         Returns
         -------
@@ -825,11 +825,11 @@ class DuckDBStore(BaseStore):
             SELECT
                 e.doc_id, 
                 e.chunk_id, 
-                e.start AS start_index, 
-                e.end AS end_index, 
+                e.start_index, 
+                e.end_index, 
                 e.context, 
                 {attribute_select}
-                doc.text[ e.start: e.end ] AS text,
+                doc.text[ e.start_index: e.end_index ] AS text,
                 'bm25' AS metric_name,
                 fts_main_chunks.match_bm25(chunk_id, $query, k := $k, b := $b, conjunctive := $conjunctive) AS metric_value
             FROM embeddings e
