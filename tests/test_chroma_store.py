@@ -188,6 +188,29 @@ def test_retrieve_with_deoverlap():
     assert len(results_separate) == 2
 
 
+def test_retrieve_with_deoverlap_aggregates_attributes():
+    store = ChromaDBStore.create(
+        location=":memory:",
+        embed=DummyEmbeddingFunction(),
+        name="test_deoverlap_attributes",
+        overwrite=True,
+        attributes={"topic": str},
+    )
+    doc = _make_doc_with_overlapping_chunks()
+    doc.attributes = {"topic": "first"}
+    assert doc.chunks is not None
+    doc.chunks[0].context = "h1"
+    doc.chunks[1].context = "h2"
+    doc.chunks[1].attributes = {"topic": "second"}
+
+    store.insert(doc)
+    results = store.retrieve("hello", top_k=2, deoverlap=True)
+
+    assert len(results) == 1
+    assert results[0].context == "h1"
+    assert results[0].attributes == {"topic": ["first", "second"]}
+
+
 def test_insert_and_retrieve_with_attributes_filter():
     store = ChromaDBStore.create(
         location=":memory:",
@@ -298,6 +321,17 @@ def test_create_rejects_defaulted_attributes_annotations():
             name="test_attributes_schema_default_reject",
             overwrite=True,
             attributes={"tenant": str, "priority": (int, 0)},
+        )
+
+
+def test_create_rejects_invalid_attribute_names():
+    with pytest.raises(ValueError, match="must match"):
+        ChromaDBStore.create(
+            location=":memory:",
+            embed=DummyEmbeddingFunction(),
+            name="test_attributes_schema_name_reject",
+            overwrite=True,
+            attributes={"tenant-id": str},
         )
 
 

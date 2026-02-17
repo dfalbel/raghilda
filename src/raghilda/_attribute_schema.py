@@ -75,6 +75,7 @@ _ATTRIBUTE_NAME_TO_SCALAR_TYPE: dict[str, AttributeScalarType] = {
     value: key for key, value in _ATTRIBUTE_SCALAR_TYPE_TO_NAME.items()
 }
 _FLOAT_VECTOR_TYPE_PATTERN = re.compile(r"^float_vector\[(\d+)\]$")
+_ATTRIBUTE_NAME_PATTERN = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 
 def normalize_attributes_schema(
@@ -108,12 +109,7 @@ def normalize_attributes_spec(
     spec: dict[str, AttributeSpec] = {}
 
     for key, item in schema_items.items():
-        if not isinstance(key, str) or not key:
-            raise ValueError("Attribute column names must be non-empty strings")
-        if "." in key:
-            raise ValueError(
-                f"Attribute column '{key}' cannot contain '.'; dots are reserved for nested object filter paths"
-            )
+        _validate_attribute_name(key, kind="Attribute column")
         if key in reserved:
             raise ValueError(f"Attribute column '{key}' is reserved")
 
@@ -282,10 +278,10 @@ def _parse_struct_annotation(
 ) -> AttributeStructType:
     fields: dict[str, AttributeType] = {}
     for field_name, field_annotation in annotation.items():
-        if not isinstance(field_name, str) or not field_name:
-            raise ValueError(
-                f"Object attribute field names for '{key}' must be non-empty strings"
-            )
+        _validate_attribute_name(
+            field_name,
+            kind=f"Object attribute field for '{key}'",
+        )
         field_type, field_nullable = _parse_attribute_type(
             key=f"{key}.{field_name}",
             annotation=field_annotation,
@@ -397,8 +393,7 @@ def attributes_schema_from_json_dict(
 ) -> dict[str, AttributeType]:
     schema: dict[str, AttributeType] = {}
     for key, value in attributes_schema_json.items():
-        if not isinstance(key, str) or not key:
-            raise ValueError("Attribute column names must be non-empty strings")
+        _validate_attribute_name(key, kind="Attribute column")
         schema[key] = _attribute_type_from_json_value(
             key=key,
             value=value,
@@ -434,8 +429,7 @@ def attributes_spec_from_json_dict(
 ) -> dict[str, AttributeSpec]:
     out: dict[str, AttributeSpec] = {}
     for key, payload in attributes_spec_json.items():
-        if not isinstance(key, str) or not key:
-            raise ValueError("Attribute column names must be non-empty strings")
+        _validate_attribute_name(key, kind="Attribute column")
         if not isinstance(payload, Mapping):
             raise ValueError(
                 f"Attribute spec for '{key}' must be a mapping with keys: type, nullable, required, default"
@@ -527,10 +521,10 @@ def _attribute_type_from_json_value(
 
         fields: dict[str, AttributeType] = {}
         for field_name, field_type_json in fields_value.items():
-            if not isinstance(field_name, str) or not field_name:
-                raise ValueError(
-                    f"Attribute struct field names for '{key}' must be non-empty strings"
-                )
+            _validate_attribute_name(
+                field_name,
+                kind=f"Object attribute field for '{key}'",
+            )
             fields[field_name] = _attribute_type_from_json_value(
                 key=f"{key}.{field_name}",
                 value=field_type_json,
@@ -740,3 +734,12 @@ def _attribute_type_label(attribute_type: AttributeType) -> str:
 
 def _quote_identifier(identifier: str) -> str:
     return '"' + identifier.replace('"', '""') + '"'
+
+
+def _validate_attribute_name(name: Any, *, kind: str) -> None:
+    if not isinstance(name, str) or not name:
+        raise ValueError(f"{kind} names must be non-empty strings")
+    if _ATTRIBUTE_NAME_PATTERN.fullmatch(name) is None:
+        raise ValueError(
+            f"{kind} '{name}' must match [A-Za-z_][A-Za-z0-9_]* (letters, digits, underscores only; no dots or dashes)"
+        )

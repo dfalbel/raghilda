@@ -137,6 +137,44 @@ class TestDuckDBStore:
                         f"Chunks overlap: [{chunk1.start_index}, {chunk1.end_index}) and [{chunk2.start_index}, {chunk2.end_index})"
                     )
 
+    def test_retrieve_with_deoverlap_aggregates_attributes(self):
+        store = DuckDBStore.create(
+            location=":memory:",
+            embed=None,
+            overwrite=True,
+            attributes={"topic": str},
+        )
+        doc = MarkdownDocument(
+            origin="test_deoverlap_attributes",
+            content="alpha beta gamma",
+            attributes={"topic": "first"},
+        )
+        doc.chunks = [
+            MarkdownChunk(
+                start_index=0,
+                end_index=10,
+                text="alpha beta",
+                token_count=10,
+                context="h1",
+            ),
+            MarkdownChunk(
+                start_index=6,
+                end_index=16,
+                text="beta gamma",
+                token_count=10,
+                context="h2",
+                attributes={"topic": "second"},
+            ),
+        ]
+        store.insert(doc)
+        store.build_index("bm25")
+
+        results = store.retrieve("beta", top_k=5, deoverlap=True)
+
+        assert len(results) == 1
+        assert results[0].context == "h1"
+        assert results[0].attributes == {"topic": ["first", "second"]}
+
     def test_create_store_with_attributes_schema(self):
         store = DuckDBStore.create(
             location=":memory:",
@@ -185,6 +223,15 @@ class TestDuckDBStore:
             "priority": int,
             "is_public": bool,
         }
+
+    def test_create_store_rejects_invalid_attribute_names(self):
+        with pytest.raises(ValueError, match="must match"):
+            DuckDBStore.create(
+                location=":memory:",
+                embed=None,
+                overwrite=True,
+                attributes={"tenant-id": str},
+            )
 
     def test_create_store_with_vector_attributes_annotation(self):
         store = DuckDBStore.create(
@@ -474,54 +521,18 @@ class TestDuckDBStore:
             },
         }
 
-    def test_nested_object_attribute_with_hyphenated_field_name(self):
-        store = DuckDBStore.create(
-            location=":memory:",
-            embed=None,
-            overwrite=True,
-            attributes={
-                "details": {
-                    "source-type": str,
+    def test_nested_object_attribute_rejects_hyphenated_field_name(self):
+        with pytest.raises(ValueError, match="must match"):
+            DuckDBStore.create(
+                location=":memory:",
+                embed=None,
+                overwrite=True,
+                attributes={
+                    "details": {
+                        "source-type": str,
+                    },
                 },
-            },
-        )
-
-        doc = MarkdownDocument(
-            origin="hyphenated-field-test",
-            content="alpha",
-            attributes={
-                "details": {
-                    "source-type": "handbook",
-                },
-            },
-        )
-        doc.chunks = [
-            MarkdownChunk(
-                start_index=0,
-                end_index=5,
-                text="alpha",
-                token_count=5,
             )
-        ]
-        store.insert(doc)
-        store.build_index("bm25")
-
-        results = store.retrieve(
-            "alpha",
-            top_k=5,
-            deoverlap=False,
-            attributes_filter={
-                "type": "eq",
-                "key": "details.source-type",
-                "value": "handbook",
-            },
-        )
-        assert len(results) == 1
-        assert results[0].attributes == {
-            "details": {
-                "source-type": "handbook",
-            }
-        }
 
     def test_insert_applies_inline_attribute_defaults(self):
         store = DuckDBStore.create(

@@ -100,6 +100,11 @@ def test_openai_store_create_rejects_defaulted_attributes_schema():
         OpenAIStore.create(attributes={"tenant": str, "priority": (int, 0)})
 
 
+def test_openai_store_create_rejects_invalid_attribute_names():
+    with pytest.raises(ValueError, match="must match"):
+        OpenAIStore.create(attributes={"tenant-id": str})
+
+
 def test_openai_store_insert_uses_document_attributes():
     client = _FakeOpenAIClient()
     store = OpenAIStore(

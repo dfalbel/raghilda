@@ -148,9 +148,33 @@ def test_normalize_attributes_spec_rejects_optional_values_when_not_supported():
 
 
 def test_normalize_attributes_spec_rejects_dotted_top_level_attribute_names():
-    with pytest.raises(ValueError, match="cannot contain '.'"):
+    with pytest.raises(ValueError, match="must match"):
         normalize_attributes_spec(
             {"a.b": str},
+            reserved_columns=set(),
+        )
+
+
+def test_normalize_attributes_spec_rejects_hyphenated_top_level_attribute_names():
+    with pytest.raises(ValueError, match="must match"):
+        normalize_attributes_spec(
+            {"a-b": str},
+            reserved_columns=set(),
+        )
+
+
+def test_normalize_attributes_spec_rejects_dotted_nested_field_names():
+    with pytest.raises(ValueError, match="must match"):
+        normalize_attributes_spec(
+            {"details": {"source.type": str}},
+            reserved_columns=set(),
+        )
+
+
+def test_normalize_attributes_spec_rejects_hyphenated_nested_field_names():
+    with pytest.raises(ValueError, match="must match"):
+        normalize_attributes_spec(
+            {"details": {"source-type": str}},
             reserved_columns=set(),
         )
 
@@ -169,4 +193,16 @@ def test_attributes_spec_from_json_rejects_optional_values_when_not_supported():
                 }
             },
             allow_optional_values=False,
+        )
+
+
+def test_attributes_schema_from_json_rejects_invalid_nested_field_name():
+    with pytest.raises(ValueError, match="must match"):
+        attributes_schema_from_json_dict(
+            {
+                "details": {
+                    "type": "struct",
+                    "fields": {"source-type": "str"},
+                }
+            }
         )
