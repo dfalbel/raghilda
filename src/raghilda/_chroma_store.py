@@ -557,8 +557,9 @@ class ChromaDBStore(BaseStore):
                 "context": chunk.context,
                 "origin": document.origin,
                 _CONTENT_HASH_METADATA_KEY: content_hash,
-                _CONTENT_TEXT_METADATA_KEY: document.content,
             }
+            if idx == 0:
+                chunk_record[_CONTENT_TEXT_METADATA_KEY] = document.content
             chunk_record.update(resolved_attributes)
             chunk_attributes_records.append(
                 {k: v for k, v in chunk_record.items() if v is not None}

@@ -210,6 +210,46 @@ def test_insert_keeps_existing_chunks_when_upsert_fails(monkeypatch):
     assert existing["documents"] == ["hello world"]
 
 
+def test_insert_stores_document_content_once_in_metadata():
+    store = ChromaDBStore.create(
+        location=":memory:",
+        embed=DummyEmbeddingFunction(),
+        name="test_store_content_metadata_once",
+        overwrite=True,
+    )
+
+    content = "hello world"
+    doc = MarkdownDocument(origin="same-origin", content=content)
+    doc.chunks = [
+        MarkdownChunk(
+            start_index=0,
+            end_index=5,
+            text=content[:5],
+            token_count=5,
+        ),
+        MarkdownChunk(
+            start_index=6,
+            end_index=len(content),
+            text=content[6:],
+            token_count=len(content[6:]),
+        ),
+    ]
+    store.insert(doc)
+
+    existing = store.collection.get(
+        where={"origin": "same-origin"},
+        include=["metadatas"],
+    )
+    metadatas = existing.get("metadatas") or []
+    rows_with_content = [
+        metadata
+        for metadata in metadatas
+        if metadata and metadata.get("_raghilda_content_text") is not None
+    ]
+    assert len(rows_with_content) == 1
+    assert rows_with_content[0]["_raghilda_content_text"] == content
+
+
 def test_connect_with_embed(tmp_path):
     location = tmp_path / "chroma_store"
     embed = DummyEmbeddingFunction()

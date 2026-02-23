@@ -1222,6 +1222,23 @@ def test_openai_store_create_rejects_vector_attributes_schema():
         OpenAIStore.create(attributes={"embedding25": Annotated[list[float], 25]})
 
 
+def test_openai_store_create_accepts_mapping_attributes_with_mocked_client(monkeypatch):
+    class FakeVectorStores:
+        def create(self, **kwargs):
+            return SimpleNamespace(id="vs_test")
+
+    fake_client = SimpleNamespace(vector_stores=FakeVectorStores())
+
+    def fake_openai_client(*, api_key=None, base_url=None):
+        return fake_client
+
+    monkeypatch.setattr("raghilda._openai_store.openai.Client", fake_openai_client)
+
+    store = OpenAIStore.create(attributes={"tenant": str, "priority": int})
+    assert store.attributes_schema == {"tenant": str, "priority": int}
+    assert set(store.attributes_spec.keys()) == {"tenant", "priority"}
+
+
 def test_openai_store_normalize_attributes_preserves_large_ints():
     normalized = _normalize_openai_attributes(
         {
@@ -1356,6 +1373,56 @@ def test_openai_store_insert_updates_when_attributes_change_for_same_content():
     assert fake_vector_store_files.upload_calls[0]["attributes"]["tenant"] == "new"
 
 
+def test_openai_store_insert_rejects_too_many_user_attributes():
+    class FakePage:
+        def __init__(self, data):
+            self.data = data
+
+        def has_next_page(self):
+            return False
+
+        def get_next_page(self):
+            raise AssertionError("No next page expected")
+
+    class FakeVectorStoreFiles:
+        def __init__(self):
+            self.upload_calls = []
+            self.page = FakePage([])
+
+        def list(self, **kwargs):
+            return self.page
+
+        def delete(self, file_id, **kwargs):
+            raise AssertionError("delete should not be called")
+
+        def upload_and_poll(self, **kwargs):
+            self.upload_calls.append(kwargs)
+            return SimpleNamespace(id="file_new")
+
+    fake_vector_store_files = FakeVectorStoreFiles()
+    fake_client = SimpleNamespace(
+        vector_stores=SimpleNamespace(files=fake_vector_store_files),
+        files=SimpleNamespace(content=lambda file_id: None),
+    )
+    attributes_schema = {f"k{i}": str for i in range(15)}
+    store = OpenAIStore(
+        client=fake_client,
+        store_id="vs_test",
+        attributes=attributes_schema,
+    )
+    document_attributes = {f"k{i}": f"v{i}" for i in range(15)}
+
+    with pytest.raises(ValueError, match="at most 14 user attributes"):
+        store.insert(
+            MarkdownDocument(
+                origin="doc",
+                content="hello world",
+                attributes=document_attributes,
+            )
+        )
+    assert fake_vector_store_files.upload_calls == []
+
+
 def test_openai_store_insert_matches_legacy_file_by_filename():
     content = "hello world"
     content_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
@@ -1429,6 +1496,70 @@ def test_openai_store_insert_matches_legacy_file_by_filename():
     assert fake_vector_store_files.deleted_ids == ["file_legacy"]
     assert len(fake_vector_store_files.upload_calls) == 1
     assert fake_vector_store_files.upload_calls[0]["attributes"]["tenant"] == "new"
+
+
+def test_openai_store_insert_ignores_unmanaged_matching_filename():
+    content = "hello world"
+
+    class FakePage:
+        def __init__(self, data):
+            self.data = data
+
+        def has_next_page(self):
+            return False
+
+        def get_next_page(self):
+            raise AssertionError("No next page expected")
+
+    class FakeVectorStoreFiles:
+        def __init__(self):
+            self.deleted_ids = []
+            self.upload_calls = []
+            self.page = FakePage(
+                [
+                    SimpleNamespace(
+                        id="file_unmanaged",
+                        created_at=1,
+                        filename="doc.md",
+                        attributes={"tenant": "external"},
+                    )
+                ]
+            )
+
+        def list(self, **kwargs):
+            return self.page
+
+        def delete(self, file_id, **kwargs):
+            self.deleted_ids.append(file_id)
+            return SimpleNamespace(id=file_id, deleted=True)
+
+        def upload_and_poll(self, **kwargs):
+            self.upload_calls.append(kwargs)
+            return SimpleNamespace(id="file_new")
+
+    fake_vector_store_files = FakeVectorStoreFiles()
+    fake_client = SimpleNamespace(
+        vector_stores=SimpleNamespace(files=fake_vector_store_files),
+        files=SimpleNamespace(content=lambda file_id: SimpleNamespace(content=b"")),
+    )
+    store = OpenAIStore(
+        client=fake_client,
+        store_id="vs_test",
+        attributes={"tenant": str},
+    )
+
+    result = store.insert(
+        MarkdownDocument(
+            origin="doc",
+            content=content,
+            attributes={"tenant": "new"},
+        )
+    )
+
+    assert result.action == "inserted"
+    assert result.replaced_document is None
+    assert fake_vector_store_files.deleted_ids == []
+    assert len(fake_vector_store_files.upload_calls) == 1
 
 
 def test_openai_store_insert_keeps_existing_file_when_upload_fails():

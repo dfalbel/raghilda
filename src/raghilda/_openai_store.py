@@ -26,6 +26,8 @@ _RESERVED_INTERNAL_ATTRIBUTE_KEYS = {
     _INTERNAL_ORIGIN_ATTRIBUTE_KEY,
     _INTERNAL_CONTENT_HASH_ATTRIBUTE_KEY,
 }
+_OPENAI_MAX_FILE_ATTRIBUTES = 16
+_OPENAI_INTERNAL_ATTRIBUTE_COUNT = 2
 
 
 @dataclass(repr=False)
@@ -254,13 +256,7 @@ class OpenAIStore(BaseStore):
         self.client = client
         self.store_id = store_id
         if attributes_spec is not None:
-            resolved_spec = normalize_attributes_spec(
-                attributes=attributes_spec,
-                reserved_columns=_RESERVED_INTERNAL_ATTRIBUTE_KEYS,
-                allow_vector_types=False,
-                allow_struct_types=False,
-                allow_optional_values=False,
-            )
+            resolved_spec = dict(attributes_spec)
         elif attributes is not None:
             resolved_spec = normalize_attributes_spec(
                 attributes=attributes,
@@ -307,12 +303,21 @@ class OpenAIStore(BaseStore):
             sources=[document.attributes],
         )
         user_file_attributes = _normalize_openai_attributes(resolved_attributes)
+        if (
+            len(user_file_attributes) + _OPENAI_INTERNAL_ATTRIBUTE_COUNT
+            > _OPENAI_MAX_FILE_ATTRIBUTES
+        ):
+            raise ValueError(
+                "OpenAI vector store files support at most 16 total attributes; "
+                f"received {len(user_file_attributes)} user attributes plus "
+                "2 internal attributes. Use at most 14 user attributes."
+            )
 
         content_hash = hashlib.sha256(document.content.encode("utf-8")).hexdigest()
         existing_files = [
             vector_store_file
             for vector_store_file in self._iter_vector_store_files()
-            if self._origin_from_vector_store_file(vector_store_file) == document.origin
+            if self._matches_existing_origin(vector_store_file, document.origin)
         ]
         matching_files = [
             vector_store_file
@@ -497,9 +502,29 @@ class OpenAIStore(BaseStore):
         if origin:
             return str(origin)
         filename = getattr(vector_store_file, "filename", None) or ""
-        if filename:
-            return filename[:-3] if filename.endswith(".md") else filename
+        filename_origin = self._origin_from_filename(filename)
+        if filename_origin:
+            return filename_origin
         return None
+
+    def _matches_existing_origin(self, vector_store_file: Any, origin: str) -> bool:
+        attributes = dict(getattr(vector_store_file, "attributes", None) or {})
+        managed_origin = attributes.get(_INTERNAL_ORIGIN_ATTRIBUTE_KEY)
+        if managed_origin:
+            return str(managed_origin) == origin
+        # Legacy fallback: accept filename match only for files that have
+        # raghilda-managed internal metadata.
+        if attributes.get(_INTERNAL_CONTENT_HASH_ATTRIBUTE_KEY) is None:
+            return False
+        filename = getattr(vector_store_file, "filename", None) or ""
+        return self._origin_from_filename(filename) == origin
+
+    def _origin_from_filename(self, filename: str) -> Optional[str]:
+        if not filename:
+            return None
+        if filename.endswith(".md"):
+            return filename[:-3]
+        return filename
 
 
 def _normalize_openai_attributes(
