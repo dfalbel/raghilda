@@ -227,13 +227,6 @@ class OpenAIStore(BaseStore):
                 allow_struct_types=False,
                 allow_optional_values=False,
             )
-            resolved_attributes_spec = normalize_attributes_spec(
-                attributes=resolved_attributes_spec,
-                reserved_columns=_RESERVED_INTERNAL_ATTRIBUTE_KEYS,
-                allow_vector_types=False,
-                allow_struct_types=False,
-                allow_optional_values=False,
-            )
         resolved_attributes_schema = {
             key: spec.attribute_type for key, spec in resolved_attributes_spec.items()
         }
@@ -332,6 +325,14 @@ class OpenAIStore(BaseStore):
         if existing_files and skip_if_unchanged and len(existing_files) == 1:
             if matching_files:
                 current_document = self._snapshot_document_from_file(matching_files[0])
+                if current_document is None:
+                    current_document = MarkdownDocument(
+                        id=document.id,
+                        origin=document.origin,
+                        content=document.content,
+                        chunks=document.chunks,
+                        attributes=document.attributes,
+                    )
                 return WriteResult(
                     action="skipped",
                     document=current_document,
@@ -476,13 +477,18 @@ class OpenAIStore(BaseStore):
                 break
             page = page.get_next_page()
 
-    def _snapshot_document_from_file(self, vector_store_file: Any) -> MarkdownDocument:
+    def _snapshot_document_from_file(
+        self, vector_store_file: Any
+    ) -> Optional[MarkdownDocument]:
         attributes = dict(getattr(vector_store_file, "attributes", None) or {})
         origin = self._origin_from_vector_store_file(vector_store_file)
         if not origin:
             origin = getattr(vector_store_file, "id")
 
-        response = self.client.files.content(file_id=vector_store_file.id)
+        try:
+            response = self.client.files.content(file_id=vector_store_file.id)
+        except openai.BadRequestError:
+            return None
         raw = response.content
         content = raw.decode("utf-8") if isinstance(raw, bytes) else str(raw)
         user_attributes = {

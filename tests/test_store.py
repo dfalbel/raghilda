@@ -1,8 +1,11 @@
 import os
 import socket
 import hashlib
+import json
 from types import SimpleNamespace
 from typing import Annotated
+import httpx
+import openai
 import pytest
 from raghilda.store import DuckDBStore, OpenAIStore
 from raghilda.scrape import find_links
@@ -50,6 +53,27 @@ def _require_openai_integration() -> None:
         pytest.skip("OPENAI_API_KEY not set in environment variables")
     if not _can_reach_openai():
         pytest.skip("OpenAI API is not reachable from this environment")
+
+
+def _run_openai_or_skip(fn, *args, **kwargs):
+    try:
+        return fn(*args, **kwargs)
+    except openai.AuthenticationError:
+        pytest.skip("OPENAI_API_KEY is invalid for OpenAI integration tests")
+
+
+def test_run_openai_or_skip_skips_on_auth_error():
+    def _raise_auth_error():
+        request = httpx.Request("GET", "https://api.openai.com/v1/models")
+        response = httpx.Response(401, request=request)
+        raise openai.AuthenticationError(
+            "Error code: 401",
+            response=response,
+            body=None,
+        )
+
+    with pytest.raises(pytest.skip.Exception):
+        _run_openai_or_skip(_raise_auth_error)
 
 
 class TestDuckDBStore:
@@ -1051,19 +1075,27 @@ class TestOpenAIStore:
 
     @pytest.fixture
     def store(self):
-        store = OpenAIStore.create()
+        store = _run_openai_or_skip(OpenAIStore.create)
         try:
             yield store
         finally:
-            store.client.vector_stores.delete(vector_store_id=store.store_id)
+            try:
+                store.client.vector_stores.delete(vector_store_id=store.store_id)
+            except openai.AuthenticationError:
+                pass
 
     @pytest.fixture
     def store_with_attributes(self):
-        store = OpenAIStore.create(attributes={"tenant": str, "priority": int})
+        store = _run_openai_or_skip(
+            OpenAIStore.create, attributes={"tenant": str, "priority": int}
+        )
         try:
             yield store
         finally:
-            store.client.vector_stores.delete(vector_store_id=store.store_id)
+            try:
+                store.client.vector_stores.delete(vector_store_id=store.store_id)
+            except openai.AuthenticationError:
+                pass
 
     @pytest.fixture
     def store_with_class_attributes(self):
@@ -1071,18 +1103,21 @@ class TestOpenAIStore:
             tenant: str
             priority: int
 
-        store = OpenAIStore.create(attributes=AttributesSpec)
+        store = _run_openai_or_skip(OpenAIStore.create, attributes=AttributesSpec)
         try:
             yield store
         finally:
-            store.client.vector_stores.delete(vector_store_id=store.store_id)
+            try:
+                store.client.vector_stores.delete(vector_store_id=store.store_id)
+            except openai.AuthenticationError:
+                pass
 
     @pytest.fixture
     def store_with_docs(self, store):
         doc = MarkdownDocument(
             origin="test", content="hello world this is a document world world world"
         )
-        store.insert(doc)
+        _run_openai_or_skip(store.insert, doc)
         return store
 
     def test_create_store(self, store):
@@ -1629,6 +1664,116 @@ def test_openai_store_insert_keeps_existing_file_when_upload_fails():
             )
         )
     assert fake_vector_store_files.deleted_ids == []
+
+
+def test_openai_store_connect_restores_metadata_schema_with_mocked_client(
+    monkeypatch,
+):
+    schema_json = json.dumps(
+        {
+            "tenant": {"type": "str", "nullable": False, "required": True},
+            "priority": {"type": "int", "nullable": False, "required": True},
+        }
+    )
+
+    class FakeVectorStores:
+        def retrieve(self, *, vector_store_id):
+            return SimpleNamespace(
+                id=vector_store_id,
+                metadata={"raghilda_attributes_schema_json": schema_json},
+            )
+
+    fake_client = SimpleNamespace(vector_stores=FakeVectorStores())
+
+    def fake_openai_client(*, api_key=None, base_url=None):
+        return fake_client
+
+    monkeypatch.setattr("raghilda._openai_store.openai.Client", fake_openai_client)
+
+    store = OpenAIStore.connect(store_id="vs_test")
+    assert store.attributes_schema == {"tenant": str, "priority": int}
+
+
+def test_openai_store_insert_updates_when_snapshot_download_forbidden():
+    old_content = "hello world"
+    new_content = "hello world updated"
+    old_hash = hashlib.sha256(old_content.encode("utf-8")).hexdigest()
+
+    class FakePage:
+        def __init__(self, data):
+            self.data = data
+
+        def has_next_page(self):
+            return False
+
+        def get_next_page(self):
+            raise AssertionError("No next page expected")
+
+    class FakeVectorStoreFiles:
+        def __init__(self):
+            self.deleted_ids = []
+            self.upload_calls = []
+            self.page = FakePage(
+                [
+                    SimpleNamespace(
+                        id="file_old",
+                        created_at=1,
+                        filename="doc.md",
+                        attributes={
+                            "_raghilda_origin": "doc",
+                            "_raghilda_content_hash": old_hash,
+                            "tenant": "old",
+                        },
+                    )
+                ]
+            )
+
+        def list(self, **kwargs):
+            return self.page
+
+        def delete(self, file_id, **kwargs):
+            self.deleted_ids.append(file_id)
+            return SimpleNamespace(id=file_id, deleted=True)
+
+        def upload_and_poll(self, **kwargs):
+            self.upload_calls.append(kwargs)
+            return SimpleNamespace(id="file_new")
+
+    class FakeFiles:
+        def content(self, file_id):
+            request = httpx.Request(
+                "GET", f"https://api.openai.com/v1/files/{file_id}/content"
+            )
+            response = httpx.Response(400, request=request)
+            raise openai.BadRequestError(
+                "Not allowed to download files of purpose: assistants",
+                response=response,
+                body=None,
+            )
+
+    fake_vector_store_files = FakeVectorStoreFiles()
+    fake_client = SimpleNamespace(
+        vector_stores=SimpleNamespace(files=fake_vector_store_files),
+        files=FakeFiles(),
+    )
+    store = OpenAIStore(
+        client=fake_client,
+        store_id="vs_test",
+        attributes={"tenant": str},
+    )
+
+    result = store.insert(
+        MarkdownDocument(
+            origin="doc",
+            content=new_content,
+            attributes={"tenant": "new"},
+        )
+    )
+
+    assert result.action == "updated"
+    assert result.replaced_document is None
+    assert fake_vector_store_files.deleted_ids == ["file_old"]
+    assert len(fake_vector_store_files.upload_calls) == 1
 
 
 def _get_markdown_chunk(doc, start, end):
