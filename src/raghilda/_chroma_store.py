@@ -502,6 +502,7 @@ class ChromaDBStore(BaseStore):
         )
         existing_ids = list(existing.get("ids") or [])
         replaced_document = None
+        incoming_signature = self._incoming_chunk_signature(document)
         if existing_ids and skip_if_unchanged:
             existing_metadatas = list(existing.get("metadatas") or [])
             existing_hash = None
@@ -509,7 +510,11 @@ class ChromaDBStore(BaseStore):
                 if metadata and metadata.get(_CONTENT_HASH_METADATA_KEY):
                     existing_hash = metadata[_CONTENT_HASH_METADATA_KEY]
                     break
-            if existing_hash == content_hash:
+            existing_signature = self._existing_chunk_signature(existing)
+            if (
+                existing_hash == content_hash
+                and existing_signature == incoming_signature
+            ):
                 current_document = self._snapshot_document_from_existing(
                     existing,
                     origin=document.origin,
@@ -777,6 +782,56 @@ class ChromaDBStore(BaseStore):
 
     def _filterable_columns(self) -> set[str]:
         return _FILTERABLE_BASE_COLUMNS | set(self.metadata.attributes_schema)
+
+    def _incoming_chunk_signature(
+        self, document: MarkdownDocument
+    ) -> list[tuple[Any, ...]]:
+        signatures: list[tuple[Any, ...]] = []
+        attribute_columns = list(self.metadata.attributes_schema)
+        for idx, chunk in enumerate(document.chunks or []):
+            resolved_attributes = merge_attribute_values(
+                attributes_spec=self.metadata.attributes_spec,
+                sources=[document.attributes, chunk.attributes],
+            )
+            signatures.append(
+                (
+                    idx,
+                    chunk.start_index,
+                    chunk.end_index,
+                    chunk.context,
+                    chunk.token_count,
+                    chunk.text,
+                    *[resolved_attributes.get(col) for col in attribute_columns],
+                )
+            )
+        signatures.sort(key=lambda row: row[0])
+        return signatures
+
+    def _existing_chunk_signature(
+        self, existing: dict[str, Any]
+    ) -> list[tuple[Any, ...]]:
+        chunk_texts = list(existing.get("documents") or [])
+        chunk_metadatas = list(existing.get("metadatas") or [])
+        attribute_columns = list(self.metadata.attributes_schema)
+        signatures: list[tuple[Any, ...]] = []
+        for idx, (chunk_text, metadata) in enumerate(
+            zip(chunk_texts, chunk_metadatas, strict=False)
+        ):
+            metadata = metadata or {}
+            start_index = int(metadata.get("start_index", 0))
+            signatures.append(
+                (
+                    int(metadata.get("chunk_id", idx)),
+                    start_index,
+                    int(metadata.get("end_index", start_index + len(chunk_text))),
+                    metadata.get("context"),
+                    int(metadata.get("token_count", len(chunk_text))),
+                    chunk_text,
+                    *[metadata.get(col) for col in attribute_columns],
+                )
+            )
+        signatures.sort(key=lambda row: row[0])
+        return signatures
 
     def _snapshot_document_from_existing(
         self, existing: dict[str, Any], *, origin: str

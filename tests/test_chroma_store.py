@@ -122,6 +122,49 @@ def test_insert_and_retrieve():
         assert chunk.text is not None
 
 
+def test_insert_same_content_but_different_chunking_updates():
+    store = ChromaDBStore.create(
+        location=":memory:",
+        embed=DummyEmbeddingFunction(),
+        name="test_store_chunk_update",
+        overwrite=True,
+    )
+    content = "hello world"
+    doc1 = MarkdownDocument(origin="same-origin", content=content)
+    doc1.chunks = [
+        MarkdownChunk(
+            start_index=0,
+            end_index=len(content),
+            text=content,
+            token_count=len(content),
+        )
+    ]
+    first = store.insert(doc1)
+    assert first.action == "inserted"
+    assert store.collection.count() == 1
+
+    doc2 = MarkdownDocument(origin="same-origin", content=content)
+    doc2.chunks = [
+        MarkdownChunk(
+            start_index=0,
+            end_index=5,
+            text=content[:5],
+            token_count=5,
+        ),
+        MarkdownChunk(
+            start_index=6,
+            end_index=len(content),
+            text=content[6:],
+            token_count=len(content[6:]),
+        ),
+    ]
+    second = store.insert(doc2)
+    assert second.action == "updated"
+    assert second.document.chunks is not None
+    assert len(second.document.chunks) == 2
+    assert store.collection.count() == 2
+
+
 def test_connect_with_embed(tmp_path):
     location = tmp_path / "chroma_store"
     embed = DummyEmbeddingFunction()

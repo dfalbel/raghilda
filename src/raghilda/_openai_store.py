@@ -285,6 +285,12 @@ class OpenAIStore(BaseStore):
                         "OpenAIStore does not support per-chunk attributes; use document-level attributes."
                     )
 
+        resolved_attributes = merge_attribute_values(
+            attributes_spec=self.attributes_spec,
+            sources=[document.attributes],
+        )
+        user_file_attributes = _normalize_openai_attributes(resolved_attributes)
+
         content_hash = hashlib.sha256(document.content.encode("utf-8")).hexdigest()
         existing_files = [
             vector_store_file
@@ -296,23 +302,19 @@ class OpenAIStore(BaseStore):
                 == document.origin
             )
         ]
+        matching_files = [
+            vector_store_file
+            for vector_store_file in existing_files
+            if self._openai_file_matches_insert_request(
+                vector_store_file=vector_store_file,
+                expected_content_hash=content_hash,
+                expected_user_attributes=user_file_attributes,
+            )
+        ]
         replaced_document = None
-        if existing_files and skip_if_unchanged:
-            existing_hashes = {
-                (getattr(vector_store_file, "attributes", None) or {}).get(
-                    _INTERNAL_CONTENT_HASH_ATTRIBUTE_KEY
-                )
-                for vector_store_file in existing_files
-            }
-            if content_hash in existing_hashes:
-                current_document = self._snapshot_document_from_file(
-                    max(
-                        existing_files,
-                        key=lambda vector_store_file: getattr(
-                            vector_store_file, "created_at", 0
-                        ),
-                    )
-                )
+        if existing_files and skip_if_unchanged and len(existing_files) == 1:
+            if matching_files:
+                current_document = self._snapshot_document_from_file(matching_files[0])
                 return WriteResult(
                     action="skipped",
                     document=current_document,
@@ -334,16 +336,11 @@ class OpenAIStore(BaseStore):
                 vector_store_id=self.store_id,
             )
 
-        resolved_attributes = merge_attribute_values(
-            attributes_spec=self.attributes_spec,
-            sources=[document.attributes],
-        )
-        resolved_attributes = {
-            **resolved_attributes,
+        file_attributes = {
+            **user_file_attributes,
             _INTERNAL_ORIGIN_ATTRIBUTE_KEY: document.origin,
             _INTERNAL_CONTENT_HASH_ATTRIBUTE_KEY: content_hash,
         }
-        file_attributes = _normalize_openai_attributes(resolved_attributes)
 
         file = (document.origin + ".md", document.content.encode("utf-8"))
         if file_attributes:
@@ -369,6 +366,24 @@ class OpenAIStore(BaseStore):
             document=current_document,
             replaced_document=replaced_document,
         )
+
+    def _openai_file_matches_insert_request(
+        self,
+        *,
+        vector_store_file: Any,
+        expected_content_hash: str,
+        expected_user_attributes: Mapping[str, str | int | float | bool],
+    ) -> bool:
+        attributes = dict(getattr(vector_store_file, "attributes", None) or {})
+        if (
+            attributes.get(_INTERNAL_CONTENT_HASH_ATTRIBUTE_KEY)
+            != expected_content_hash
+        ):
+            return False
+        for key in self.attributes_schema:
+            if attributes.get(key) != expected_user_attributes.get(key):
+                return False
+        return True
 
     def retrieve(
         self,

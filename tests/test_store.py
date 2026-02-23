@@ -1,5 +1,7 @@
 import os
 import socket
+import hashlib
+from types import SimpleNamespace
 from typing import Annotated
 import pytest
 from raghilda.store import DuckDBStore, OpenAIStore
@@ -1145,6 +1147,81 @@ def test_openai_store_create_rejects_defaulted_attributes_schema():
 def test_openai_store_create_rejects_invalid_attribute_names():
     with pytest.raises(ValueError, match="must match"):
         OpenAIStore.create(attributes={"tenant-id": str})
+
+
+def test_openai_store_insert_updates_when_attributes_change_for_same_content():
+    content = "hello world"
+    content_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
+
+    class FakePage:
+        def __init__(self, data):
+            self.data = data
+
+        def has_next_page(self):
+            return False
+
+        def get_next_page(self):
+            raise AssertionError("No next page expected")
+
+    class FakeVectorStoreFiles:
+        def __init__(self):
+            self.deleted_ids = []
+            self.upload_calls = []
+            self.page = FakePage(
+                [
+                    SimpleNamespace(
+                        id="file_old",
+                        created_at=1,
+                        filename="doc.md",
+                        attributes={
+                            "_raghilda_origin": "doc",
+                            "_raghilda_content_hash": content_hash,
+                            "tenant": "old",
+                        },
+                    )
+                ]
+            )
+
+        def list(self, **kwargs):
+            return self.page
+
+        def delete(self, file_id, **kwargs):
+            self.deleted_ids.append(file_id)
+            return SimpleNamespace(id=file_id, deleted=True)
+
+        def upload_and_poll(self, **kwargs):
+            self.upload_calls.append(kwargs)
+            return SimpleNamespace(id="file_new")
+
+    class FakeFiles:
+        def content(self, file_id):
+            assert file_id == "file_old"
+            return SimpleNamespace(content=content.encode("utf-8"))
+
+    fake_vector_store_files = FakeVectorStoreFiles()
+    fake_client = SimpleNamespace(
+        vector_stores=SimpleNamespace(files=fake_vector_store_files),
+        files=FakeFiles(),
+    )
+    store = OpenAIStore(
+        client=fake_client,
+        store_id="vs_test",
+        attributes={"tenant": str},
+    )
+
+    result = store.insert(
+        MarkdownDocument(
+            origin="doc",
+            content=content,
+            attributes={"tenant": "new"},
+        )
+    )
+    assert result.action == "updated"
+    assert result.replaced_document is not None
+    assert result.replaced_document.content == content
+    assert fake_vector_store_files.deleted_ids == ["file_old"]
+    assert len(fake_vector_store_files.upload_calls) == 1
+    assert fake_vector_store_files.upload_calls[0]["attributes"]["tenant"] == "new"
 
 
 def _get_markdown_chunk(doc, start, end):
