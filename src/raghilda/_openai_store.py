@@ -1,6 +1,7 @@
 import openai
 import json
-from ._store import BaseStore
+import hashlib
+from ._store import BaseStore, WriteResult
 from .chunk import MarkdownChunk, RetrievedChunk, Metric
 from .document import Document, MarkdownDocument
 from typing import Any, Mapping, Optional, Sequence
@@ -19,6 +20,8 @@ from ._attributes import (
 )
 
 _ATTRIBUTES_SCHEMA_METADATA_KEY = "raghilda_attributes_schema_json"
+_INTERNAL_ORIGIN_ATTRIBUTE_KEY = "_raghilda_origin"
+_INTERNAL_CONTENT_HASH_ATTRIBUTE_KEY = "_raghilda_content_hash"
 
 
 @dataclass(repr=False)
@@ -265,11 +268,15 @@ class OpenAIStore(BaseStore):
     def insert(
         self,
         document: Document,
-    ) -> None:
+        *,
+        skip_if_unchanged: bool = True,
+    ) -> WriteResult:
         # Upload the document content as a file to the vector store
         # create a temporary file, write the content to it, and upload it
         if not isinstance(document, MarkdownDocument):
             raise ValueError("Only MarkdownDocument is supported for OpenAIStore")
+        if not document.origin:
+            raise ValueError("document.origin is required for insert().")
 
         if document.chunks is not None:
             for chunk in document.chunks:
@@ -278,13 +285,67 @@ class OpenAIStore(BaseStore):
                         "OpenAIStore does not support per-chunk attributes; use document-level attributes."
                     )
 
+        content_hash = hashlib.sha256(document.content.encode("utf-8")).hexdigest()
+        existing_files = [
+            vector_store_file
+            for vector_store_file in self._iter_vector_store_files()
+            if (
+                (getattr(vector_store_file, "attributes", None) or {}).get(
+                    _INTERNAL_ORIGIN_ATTRIBUTE_KEY
+                )
+                == document.origin
+            )
+        ]
+        replaced_document = None
+        if existing_files and skip_if_unchanged:
+            existing_hashes = {
+                (getattr(vector_store_file, "attributes", None) or {}).get(
+                    _INTERNAL_CONTENT_HASH_ATTRIBUTE_KEY
+                )
+                for vector_store_file in existing_files
+            }
+            if content_hash in existing_hashes:
+                current_document = self._snapshot_document_from_file(
+                    max(
+                        existing_files,
+                        key=lambda vector_store_file: getattr(
+                            vector_store_file, "created_at", 0
+                        ),
+                    )
+                )
+                return WriteResult(
+                    action="skipped",
+                    document=current_document,
+                )
+
+        if existing_files:
+            replaced_document = self._snapshot_document_from_file(
+                max(
+                    existing_files,
+                    key=lambda vector_store_file: getattr(
+                        vector_store_file, "created_at", 0
+                    ),
+                )
+            )
+
+        for vector_store_file in existing_files:
+            self.client.vector_stores.files.delete(
+                file_id=vector_store_file.id,
+                vector_store_id=self.store_id,
+            )
+
         resolved_attributes = merge_attribute_values(
             attributes_spec=self.attributes_spec,
             sources=[document.attributes],
         )
+        resolved_attributes = {
+            **resolved_attributes,
+            _INTERNAL_ORIGIN_ATTRIBUTE_KEY: document.origin,
+            _INTERNAL_CONTENT_HASH_ATTRIBUTE_KEY: content_hash,
+        }
         file_attributes = _normalize_openai_attributes(resolved_attributes)
 
-        file = ((document.origin or "") + ".md", document.content.encode("utf-8"))
+        file = (document.origin + ".md", document.content.encode("utf-8"))
         if file_attributes:
             self.client.vector_stores.files.upload_and_poll(
                 file=file,
@@ -296,6 +357,18 @@ class OpenAIStore(BaseStore):
                 file=file,
                 vector_store_id=self.store_id,
             )
+        current_document = MarkdownDocument(
+            id=document.id,
+            origin=document.origin,
+            content=document.content,
+            chunks=document.chunks,
+            attributes=document.attributes,
+        )
+        return WriteResult(
+            action="updated" if existing_files else "inserted",
+            document=current_document,
+            replaced_document=replaced_document,
+        )
 
     def retrieve(
         self,
@@ -359,6 +432,41 @@ class OpenAIStore(BaseStore):
         return self.client.vector_stores.retrieve(
             vector_store_id=self.store_id
         ).file_counts.total
+
+    def _iter_vector_store_files(self):
+        page = self.client.vector_stores.files.list(
+            vector_store_id=self.store_id,
+            limit=100,
+        )
+        while True:
+            for vector_store_file in page.data:
+                yield vector_store_file
+            if not page.has_next_page():
+                break
+            page = page.get_next_page()
+
+    def _snapshot_document_from_file(self, vector_store_file: Any) -> MarkdownDocument:
+        attributes = dict(getattr(vector_store_file, "attributes", None) or {})
+        origin = attributes.get(_INTERNAL_ORIGIN_ATTRIBUTE_KEY)
+        if not origin:
+            filename = getattr(vector_store_file, "filename", None) or ""
+            origin = filename[:-3] if filename.endswith(".md") else filename
+        if not origin:
+            origin = getattr(vector_store_file, "id")
+
+        response = self.client.files.content(file_id=vector_store_file.id)
+        raw = response.content
+        content = raw.decode("utf-8") if isinstance(raw, bytes) else str(raw)
+        user_attributes = {
+            key: value
+            for key, value in attributes.items()
+            if key in self.attributes_schema
+        }
+        return MarkdownDocument(
+            origin=origin,
+            content=content,
+            attributes=user_attributes or None,
+        )
 
 
 def _normalize_openai_attributes(

@@ -12,6 +12,27 @@ from raghilda._duckdb_store import (
 )  # internal implementation
 from raghilda._openai_store import _normalize_openai_attributes
 from raghilda.embedding import EmbeddingOpenAI
+from raghilda._embedding import EmbeddingProvider, EmbedInputType
+
+
+class CountingEmbedding(EmbeddingProvider):
+    def __init__(self):
+        self.calls = 0
+
+    def embed(
+        self,
+        x,
+        input_type: EmbedInputType = EmbedInputType.DOCUMENT,
+    ):
+        self.calls += 1
+        return [[float(len(text))] for text in x]
+
+    def get_config(self):
+        return {"type": "CountingEmbedding"}
+
+    @classmethod
+    def from_config(cls, config):
+        return cls()
 
 
 def _can_reach_openai(timeout: float = 2.0) -> bool:
@@ -73,6 +94,187 @@ class TestDuckDBStore:
     @pytest.mark.parametrize("embed", [None, EmbeddingOpenAI()], indirect=True)
     def test_insert(self, store_with_docs):
         assert store_with_docs.size() == 1
+
+    def test_insert_same_origin_skips_unchanged_by_default(self):
+        embed = CountingEmbedding()
+        store = DuckDBStore.create(
+            location=":memory:",
+            embed=embed,
+            overwrite=True,
+            name="insert_skip_unchanged",
+        )
+        calls_after_create = embed.calls
+        doc = MarkdownDocument(origin="doc-1", content="hello world")
+        doc.chunks = [
+            MarkdownChunk(
+                start_index=0,
+                end_index=len(doc.content),
+                text=doc.content,
+                token_count=len(doc.content),
+            )
+        ]
+
+        first_write = store.insert(doc)
+        assert first_write.document.origin == "doc-1"
+        assert first_write.document.content == "hello world"
+        assert embed.calls == calls_after_create + 1
+
+        second_write = store.insert(doc)
+        assert second_write.action == "skipped"
+        assert second_write.document.origin == "doc-1"
+        assert second_write.document.content == "hello world"
+        assert embed.calls == calls_after_create + 1
+
+        rows = store.con.execute(
+            "SELECT COUNT(*) FROM documents WHERE origin = 'doc-1'"
+        ).fetchone()
+        assert rows is not None
+        assert rows[0] == 1
+
+    def test_insert_same_origin_rewrites_when_skip_disabled(self):
+        embed = CountingEmbedding()
+        store = DuckDBStore.create(
+            location=":memory:",
+            embed=embed,
+            overwrite=True,
+            name="insert_force_rewrite",
+        )
+        calls_after_create = embed.calls
+        doc = MarkdownDocument(origin="doc-1", content="hello world")
+        doc.chunks = [
+            MarkdownChunk(
+                start_index=0,
+                end_index=len(doc.content),
+                text=doc.content,
+                token_count=len(doc.content),
+            )
+        ]
+
+        store.insert(doc)
+        assert embed.calls == calls_after_create + 1
+
+        store.insert(doc, skip_if_unchanged=False)
+        assert embed.calls == calls_after_create + 2
+
+    def test_insert_same_content_but_different_chunking_updates(self):
+        embed = CountingEmbedding()
+        store = DuckDBStore.create(
+            location=":memory:",
+            embed=embed,
+            overwrite=True,
+            name="insert_same_content_new_chunks",
+        )
+        calls_after_create = embed.calls
+
+        content = "hello world"
+        doc1 = MarkdownDocument(origin="doc-1", content=content)
+        doc1.chunks = [
+            MarkdownChunk(
+                start_index=0,
+                end_index=len(content),
+                text=content,
+                token_count=len(content),
+            )
+        ]
+        first = store.insert(doc1)
+        assert first.action == "inserted"
+        assert embed.calls == calls_after_create + 1
+
+        doc2 = MarkdownDocument(origin="doc-1", content=content)
+        doc2.chunks = [
+            MarkdownChunk(
+                start_index=0,
+                end_index=5,
+                text=content[0:5],
+                token_count=5,
+            ),
+            MarkdownChunk(
+                start_index=6,
+                end_index=len(content),
+                text=content[6:],
+                token_count=len(content[6:]),
+            ),
+        ]
+        second = store.insert(doc2)
+        assert second.action == "updated"
+        assert embed.calls == calls_after_create + 2
+
+        chunk_count = store.con.execute(
+            "SELECT COUNT(*) FROM embeddings e JOIN documents d USING (doc_id) WHERE d.origin = 'doc-1'"
+        ).fetchone()
+        assert chunk_count is not None
+        assert chunk_count[0] == 2
+
+    def test_insert_requires_origin(self):
+        store = DuckDBStore.create(
+            location=":memory:",
+            embed=None,
+            overwrite=True,
+            name="insert_missing_origin",
+        )
+        doc = MarkdownDocument(origin=None, content="hello world")
+        doc.chunks = [
+            MarkdownChunk(
+                start_index=0,
+                end_index=len(doc.content),
+                text=doc.content,
+                token_count=len(doc.content),
+            )
+        ]
+
+        with pytest.raises(ValueError, match="document.origin is required"):
+            store.insert(doc)
+
+    def test_insert_returns_replaced_document_when_updated(self):
+        store = DuckDBStore.create(
+            location=":memory:",
+            embed=None,
+            overwrite=True,
+            name="insert_replace_snapshot",
+        )
+        first = MarkdownDocument(origin="doc-1", content="hello world")
+        first.chunks = [
+            MarkdownChunk(
+                start_index=0,
+                end_index=len(first.content),
+                text=first.content,
+                token_count=len(first.content),
+            )
+        ]
+
+        inserted = store.insert(first)
+        assert inserted.action == "inserted"
+        assert inserted.document.origin == "doc-1"
+        assert inserted.document.content == "hello world"
+        assert inserted.replaced_document is None
+
+        second = MarkdownDocument(origin="doc-1", content="goodbye world")
+        second.chunks = [
+            MarkdownChunk(
+                start_index=0,
+                end_index=len(second.content),
+                text=second.content,
+                token_count=len(second.content),
+            )
+        ]
+
+        updated = store.insert(second)
+        assert updated.action == "updated"
+        assert updated.document.origin == "doc-1"
+        assert updated.document.content == "goodbye world"
+        assert updated.replaced_document is not None
+        assert updated.replaced_document.origin == "doc-1"
+        assert updated.replaced_document.content == "hello world"
+        assert updated.replaced_document.chunks is not None
+        assert len(updated.replaced_document.chunks) == 1
+
+        restored = store.insert(updated.replaced_document, skip_if_unchanged=False)
+        assert restored.action == "updated"
+        current = store.con.execute(
+            "SELECT text FROM documents WHERE origin = 'doc-1'"
+        ).fetchone()
+        assert current is not None
+        assert current[0] == "hello world"
 
     @pytest.mark.parametrize("embed", [EmbeddingOpenAI()], indirect=True)
     def test_retrieve_vss(self, store_with_docs):

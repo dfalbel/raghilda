@@ -1,10 +1,18 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Sequence
+from dataclasses import dataclass
+from typing import Literal, Sequence
 
 from .chunk import RetrievedChunk
-from .document import Document
+from .document import Document, MarkdownDocument
+
+
+@dataclass(frozen=True)
+class WriteResult:
+    action: Literal["inserted", "updated", "skipped"]
+    document: MarkdownDocument
+    replaced_document: MarkdownDocument | None = None
 
 
 class BaseStore(ABC):
@@ -42,15 +50,24 @@ class BaseStore(ABC):
         pass
 
     @abstractmethod
-    def insert(self, document: Document) -> None:
+    def insert(
+        self,
+        document: Document,
+        *,
+        skip_if_unchanged: bool = True,
+    ) -> WriteResult:
         """Insert a document into the store.
 
-        The document will be chunked and embedded before storage.
+        Insert or replace a document in the store.
 
         Parameters
         ----------
         document
             The document to insert.
+        skip_if_unchanged
+            If True (default), skip the write when the existing document
+            for the same identity key already has identical content and
+            chunk metadata. This helps avoid unnecessary embedding work.
         """
         pass
 
