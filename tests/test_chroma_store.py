@@ -165,6 +165,51 @@ def test_insert_same_content_but_different_chunking_updates():
     assert store.collection.count() == 2
 
 
+def test_insert_keeps_existing_chunks_when_upsert_fails(monkeypatch):
+    store = ChromaDBStore.create(
+        location=":memory:",
+        embed=DummyEmbeddingFunction(),
+        name="test_store_upsert_failure",
+        overwrite=True,
+    )
+
+    doc = MarkdownDocument(origin="same-origin", content="hello world")
+    doc.chunks = [
+        MarkdownChunk(
+            start_index=0,
+            end_index=len(doc.content),
+            text=doc.content,
+            token_count=len(doc.content),
+        )
+    ]
+    store.insert(doc)
+
+    def fail_upsert(**kwargs):
+        raise RuntimeError("upsert failed")
+
+    monkeypatch.setattr(store.collection, "upsert", fail_upsert)
+
+    updated = MarkdownDocument(origin="same-origin", content="goodbye world")
+    updated.chunks = [
+        MarkdownChunk(
+            start_index=0,
+            end_index=len(updated.content),
+            text=updated.content,
+            token_count=len(updated.content),
+        )
+    ]
+
+    with pytest.raises(RuntimeError, match="upsert failed"):
+        store.insert(updated, skip_if_unchanged=False)
+
+    existing = store.collection.get(
+        where={"origin": "same-origin"},
+        include=["documents"],
+    )
+    assert existing["ids"] == ["same-origin:0"]
+    assert existing["documents"] == ["hello world"]
+
+
 def test_connect_with_embed(tmp_path):
     location = tmp_path / "chroma_store"
     embed = DummyEmbeddingFunction()
@@ -375,6 +420,21 @@ def test_create_rejects_invalid_attribute_names():
             name="test_attributes_schema_name_reject",
             overwrite=True,
             attributes={"tenant-id": str},
+        )
+
+
+@pytest.mark.parametrize(
+    "attribute_name",
+    ["_raghilda_content_hash", "_raghilda_content_text"],
+)
+def test_create_rejects_internal_attribute_names(attribute_name):
+    with pytest.raises(ValueError, match=attribute_name):
+        ChromaDBStore.create(
+            location=":memory:",
+            embed=DummyEmbeddingFunction(),
+            name="test_attributes_schema_internal_reject",
+            overwrite=True,
+            attributes={attribute_name: str},
         )
 
 

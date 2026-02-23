@@ -65,6 +65,8 @@ _RESERVED_SYSTEM_COLUMNS = {
     "token_count",
     "context",
     "origin",
+    _CONTENT_HASH_METADATA_KEY,
+    _CONTENT_TEXT_METADATA_KEY,
 }
 
 _FILTERABLE_BASE_COLUMNS = {
@@ -464,6 +466,13 @@ class ChromaDBStore(BaseStore):
                 allow_struct_types=False,
                 allow_optional_values=False,
             )
+        attributes_spec = normalize_attributes_spec(
+            attributes=attributes_spec,
+            reserved_columns=_RESERVED_SYSTEM_COLUMNS,
+            allow_vector_types=False,
+            allow_struct_types=False,
+            allow_optional_values=False,
+        )
         return ChromaDBStore(
             client=client,
             collection=collection,
@@ -528,8 +537,6 @@ class ChromaDBStore(BaseStore):
                 existing,
                 origin=document.origin,
             )
-        if existing_ids:
-            self.collection.delete(ids=existing_ids)
 
         texts = [chunk.text for chunk in document.chunks]
 
@@ -562,6 +569,11 @@ class ChromaDBStore(BaseStore):
             documents=texts,
             metadatas=chunk_attributes_records,
         )
+        stale_ids = [
+            existing_id for existing_id in existing_ids if existing_id not in ids
+        ]
+        if stale_ids:
+            self.collection.delete(ids=stale_ids)
         current_document = MarkdownDocument(
             id=document.id,
             origin=document.origin,

@@ -702,6 +702,7 @@ class DuckDBStore(BaseStore):
             row: list[Any] = [
                 chunk.start_index,
                 chunk.end_index,
+                chunk.text,
                 chunk.context,
             ]
             row.extend(resolved[col] for col in attributes_columns)
@@ -719,13 +720,15 @@ class DuckDBStore(BaseStore):
         result = self.con.execute(
             f"""
             SELECT
-                start_index,
-                end_index,
-                context
+                e.start_index,
+                e.end_index,
+                d.text[e.start_index:e.end_index] AS text,
+                e.context
                 {attribute_select}
-            FROM embeddings
-            WHERE doc_id = ?
-            ORDER BY start_index, end_index
+            FROM embeddings e
+            JOIN documents d USING (doc_id)
+            WHERE e.doc_id = ?
+            ORDER BY e.start_index, e.end_index
             """,
             [doc_id],
         )

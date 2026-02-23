@@ -22,6 +22,10 @@ from ._attributes import (
 _ATTRIBUTES_SCHEMA_METADATA_KEY = "raghilda_attributes_schema_json"
 _INTERNAL_ORIGIN_ATTRIBUTE_KEY = "_raghilda_origin"
 _INTERNAL_CONTENT_HASH_ATTRIBUTE_KEY = "_raghilda_content_hash"
+_RESERVED_INTERNAL_ATTRIBUTE_KEYS = {
+    _INTERNAL_ORIGIN_ATTRIBUTE_KEY,
+    _INTERNAL_CONTENT_HASH_ATTRIBUTE_KEY,
+}
 
 
 @dataclass(repr=False)
@@ -149,7 +153,7 @@ class OpenAIStore(BaseStore):
         """
         attributes_spec = normalize_attributes_spec(
             attributes=attributes,
-            reserved_columns=set(),
+            reserved_columns=_RESERVED_INTERNAL_ATTRIBUTE_KEYS,
             allow_vector_types=False,
             allow_struct_types=False,
             allow_optional_values=False,
@@ -207,7 +211,7 @@ class OpenAIStore(BaseStore):
 
         resolved_attributes_spec = normalize_attributes_spec(
             attributes=attributes,
-            reserved_columns=set(),
+            reserved_columns=_RESERVED_INTERNAL_ATTRIBUTE_KEYS,
             allow_vector_types=False,
             allow_struct_types=False,
             allow_optional_values=False,
@@ -217,6 +221,13 @@ class OpenAIStore(BaseStore):
         ):
             resolved_attributes_spec = attributes_spec_from_json_dict(
                 json.loads(store_metadata[_ATTRIBUTES_SCHEMA_METADATA_KEY]),
+                allow_vector_types=False,
+                allow_struct_types=False,
+                allow_optional_values=False,
+            )
+            resolved_attributes_spec = normalize_attributes_spec(
+                attributes=resolved_attributes_spec,
+                reserved_columns=_RESERVED_INTERNAL_ATTRIBUTE_KEYS,
                 allow_vector_types=False,
                 allow_struct_types=False,
                 allow_optional_values=False,
@@ -243,11 +254,17 @@ class OpenAIStore(BaseStore):
         self.client = client
         self.store_id = store_id
         if attributes_spec is not None:
-            resolved_spec = dict(attributes_spec)
+            resolved_spec = normalize_attributes_spec(
+                attributes=attributes_spec,
+                reserved_columns=_RESERVED_INTERNAL_ATTRIBUTE_KEYS,
+                allow_vector_types=False,
+                allow_struct_types=False,
+                allow_optional_values=False,
+            )
         elif attributes is not None:
             resolved_spec = normalize_attributes_spec(
                 attributes=attributes,
-                reserved_columns=set(),
+                reserved_columns=_RESERVED_INTERNAL_ATTRIBUTE_KEYS,
                 allow_vector_types=False,
                 allow_struct_types=False,
                 allow_optional_values=False,
@@ -295,12 +312,7 @@ class OpenAIStore(BaseStore):
         existing_files = [
             vector_store_file
             for vector_store_file in self._iter_vector_store_files()
-            if (
-                (getattr(vector_store_file, "attributes", None) or {}).get(
-                    _INTERNAL_ORIGIN_ATTRIBUTE_KEY
-                )
-                == document.origin
-            )
+            if self._origin_from_vector_store_file(vector_store_file) == document.origin
         ]
         matching_files = [
             vector_store_file
@@ -330,12 +342,6 @@ class OpenAIStore(BaseStore):
                 )
             )
 
-        for vector_store_file in existing_files:
-            self.client.vector_stores.files.delete(
-                file_id=vector_store_file.id,
-                vector_store_id=self.store_id,
-            )
-
         file_attributes = {
             **user_file_attributes,
             _INTERNAL_ORIGIN_ATTRIBUTE_KEY: document.origin,
@@ -352,6 +358,11 @@ class OpenAIStore(BaseStore):
         else:
             self.client.vector_stores.files.upload_and_poll(
                 file=file,
+                vector_store_id=self.store_id,
+            )
+        for vector_store_file in existing_files:
+            self.client.vector_stores.files.delete(
+                file_id=vector_store_file.id,
                 vector_store_id=self.store_id,
             )
         current_document = MarkdownDocument(
@@ -462,10 +473,7 @@ class OpenAIStore(BaseStore):
 
     def _snapshot_document_from_file(self, vector_store_file: Any) -> MarkdownDocument:
         attributes = dict(getattr(vector_store_file, "attributes", None) or {})
-        origin = attributes.get(_INTERNAL_ORIGIN_ATTRIBUTE_KEY)
-        if not origin:
-            filename = getattr(vector_store_file, "filename", None) or ""
-            origin = filename[:-3] if filename.endswith(".md") else filename
+        origin = self._origin_from_vector_store_file(vector_store_file)
         if not origin:
             origin = getattr(vector_store_file, "id")
 
@@ -482,6 +490,16 @@ class OpenAIStore(BaseStore):
             content=content,
             attributes=user_attributes or None,
         )
+
+    def _origin_from_vector_store_file(self, vector_store_file: Any) -> Optional[str]:
+        attributes = dict(getattr(vector_store_file, "attributes", None) or {})
+        origin = attributes.get(_INTERNAL_ORIGIN_ATTRIBUTE_KEY)
+        if origin:
+            return str(origin)
+        filename = getattr(vector_store_file, "filename", None) or ""
+        if filename:
+            return filename[:-3] if filename.endswith(".md") else filename
+        return None
 
 
 def _normalize_openai_attributes(
