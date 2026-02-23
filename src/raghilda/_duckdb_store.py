@@ -432,6 +432,7 @@ class DuckDBStore(BaseStore):
                 and self._chunk_layout_matches_existing(
                     chunked_doc=document,
                     doc_id=existing["doc_id"],
+                    document_text=existing["text"],
                 )
             ):
                 current_document = self._load_document_snapshot(
@@ -455,6 +456,7 @@ class DuckDBStore(BaseStore):
                 and self._chunk_layout_matches_existing(
                     chunked_doc=document,
                     doc_id=existing["doc_id"],
+                    document_text=existing["text"],
                 )
             ):
                 current_document = self._load_document_snapshot(
@@ -683,10 +685,10 @@ class DuckDBStore(BaseStore):
         }
 
     def _chunk_layout_matches_existing(
-        self, *, chunked_doc: MarkdownDocument, doc_id: str
+        self, *, chunked_doc: MarkdownDocument, doc_id: str, document_text: str
     ) -> bool:
         incoming = self._chunk_layout_records(chunked_doc)
-        existing = self._chunk_layout_records_from_store(doc_id)
+        existing = self._chunk_layout_records_from_store(doc_id, document_text)
         return incoming == existing
 
     def _chunk_layout_records(
@@ -710,7 +712,9 @@ class DuckDBStore(BaseStore):
         records.sort(key=lambda item: (item[0], item[1]))
         return records
 
-    def _chunk_layout_records_from_store(self, doc_id: str) -> list[tuple[Any, ...]]:
+    def _chunk_layout_records_from_store(
+        self, doc_id: str, document_text: str
+    ) -> list[tuple[Any, ...]]:
         attributes_columns = list(self.metadata.attributes_schema)
         attribute_select = ", ".join(
             _quote_identifier(col) for col in attributes_columns
@@ -722,18 +726,25 @@ class DuckDBStore(BaseStore):
             SELECT
                 e.start_index,
                 e.end_index,
-                d.text[e.start_index:e.end_index] AS text,
                 e.context
                 {attribute_select}
             FROM embeddings e
-            JOIN documents d USING (doc_id)
             WHERE e.doc_id = ?
             ORDER BY e.start_index, e.end_index
             """,
             [doc_id],
         )
         rows = result.fetchall()
-        records: list[tuple[Any, ...]] = [tuple(row) for row in rows]
+        records: list[tuple[Any, ...]] = []
+        for row in rows:
+            start_index = int(row[0])
+            end_index = int(row[1])
+            context = row[2]
+            attribute_values = list(row[3:])
+            chunk_text = document_text[start_index:end_index]
+            records.append(
+                (start_index, end_index, chunk_text, context, *attribute_values)
+            )
         return records
 
     def _load_document_snapshot(
@@ -750,10 +761,9 @@ class DuckDBStore(BaseStore):
             SELECT
                 start_index,
                 end_index,
-                context,
-                text
+                context
                 {attribute_select}
-            FROM chunks
+            FROM embeddings
             WHERE doc_id = ?
             ORDER BY start_index, end_index
             """,
@@ -772,11 +782,13 @@ class DuckDBStore(BaseStore):
                 for key in attribute_columns
                 if key in row_dict and row_dict[key] is not None
             }
-            chunk_text = row_dict["text"]
+            start_index = int(row_dict["start_index"])
+            end_index = int(row_dict["end_index"])
+            chunk_text = text[start_index:end_index]
             chunks.append(
                 MarkdownChunk(
-                    start_index=int(row_dict["start_index"]),
-                    end_index=int(row_dict["end_index"]),
+                    start_index=start_index,
+                    end_index=end_index,
                     text=chunk_text,
                     token_count=len(chunk_text),
                     context=row_dict.get("context"),

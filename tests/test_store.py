@@ -244,6 +244,40 @@ class TestDuckDBStore:
         assert second.action == "updated"
         assert embed.calls == calls_after_create + 2
 
+    def test_insert_same_multi_chunk_layout_skips_when_unchanged(self):
+        embed = CountingEmbedding()
+        store = DuckDBStore.create(
+            location=":memory:",
+            embed=embed,
+            overwrite=True,
+            name="insert_same_multi_chunk_skip",
+        )
+        calls_after_create = embed.calls
+        content = "hello world"
+        doc = MarkdownDocument(origin="doc-1", content=content)
+        doc.chunks = [
+            MarkdownChunk(
+                start_index=0,
+                end_index=5,
+                text=content[:5],
+                token_count=5,
+            ),
+            MarkdownChunk(
+                start_index=6,
+                end_index=len(content),
+                text=content[6:],
+                token_count=len(content[6:]),
+            ),
+        ]
+
+        first = store.insert(doc)
+        assert first.action == "inserted"
+        assert embed.calls == calls_after_create + 1
+
+        second = store.insert(doc)
+        assert second.action == "skipped"
+        assert embed.calls == calls_after_create + 1
+
     def test_insert_requires_origin(self):
         store = DuckDBStore.create(
             location=":memory:",
@@ -314,6 +348,54 @@ class TestDuckDBStore:
         ).fetchone()
         assert current is not None
         assert current[0] == "hello world"
+
+    def test_insert_replaced_document_preserves_multi_chunk_text(self):
+        store = DuckDBStore.create(
+            location=":memory:",
+            embed=None,
+            overwrite=True,
+            name="insert_replace_multi_chunk_snapshot",
+        )
+        first = MarkdownDocument(origin="doc-1", content="hello world")
+        first.chunks = [
+            MarkdownChunk(
+                start_index=0,
+                end_index=5,
+                text="hello",
+                token_count=5,
+            ),
+            MarkdownChunk(
+                start_index=6,
+                end_index=11,
+                text="world",
+                token_count=5,
+            ),
+        ]
+        store.insert(first)
+
+        second = MarkdownDocument(origin="doc-1", content="hello mars")
+        second.chunks = [
+            MarkdownChunk(
+                start_index=0,
+                end_index=5,
+                text="hello",
+                token_count=5,
+            ),
+            MarkdownChunk(
+                start_index=6,
+                end_index=10,
+                text="mars",
+                token_count=4,
+            ),
+        ]
+        updated = store.insert(second)
+        assert updated.action == "updated"
+        assert updated.replaced_document is not None
+        assert updated.replaced_document.chunks is not None
+        assert [chunk.text for chunk in updated.replaced_document.chunks] == [
+            "hello",
+            "world",
+        ]
 
     @pytest.mark.parametrize("embed", [EmbeddingOpenAI()], indirect=True)
     def test_retrieve_vss(self, store_with_docs):
