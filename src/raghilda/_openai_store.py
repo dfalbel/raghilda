@@ -184,8 +184,6 @@ class OpenAIStore(BaseStore):
         store_id: str,
         base_url: str = "https://api.openai.com/v1",
         api_key: Optional[str] = None,
-        *,
-        attributes: Optional[AttributesSchemaSpec] = None,
     ):
         """Connect to an existing OpenAI vector store.
 
@@ -197,10 +195,6 @@ class OpenAIStore(BaseStore):
             Base URL for the OpenAI API.
         api_key
             OpenAI API key. If None, uses the OPENAI_API_KEY environment variable.
-        attributes
-            Optional schema for user-defined attribute columns. If omitted,
-            schema is loaded from the vector store metadata when available.
-            Attribute names use identifier-style syntax.
 
         Returns
         -------
@@ -211,16 +205,8 @@ class OpenAIStore(BaseStore):
         vector_store = client.vector_stores.retrieve(vector_store_id=store_id)
         store_metadata = getattr(vector_store, "metadata", None) or {}
 
-        resolved_attributes_spec = normalize_attributes_spec(
-            attributes=attributes,
-            reserved_columns=_RESERVED_INTERNAL_ATTRIBUTE_KEYS,
-            allow_vector_types=False,
-            allow_struct_types=False,
-            allow_optional_values=False,
-        )
-        if not resolved_attributes_spec and store_metadata.get(
-            _ATTRIBUTES_SCHEMA_METADATA_KEY
-        ):
+        resolved_attributes_spec: dict[str, AttributeSpec] = {}
+        if store_metadata.get(_ATTRIBUTES_SCHEMA_METADATA_KEY):
             resolved_attributes_spec = attributes_spec_from_json_dict(
                 json.loads(store_metadata[_ATTRIBUTES_SCHEMA_METADATA_KEY]),
                 allow_vector_types=False,

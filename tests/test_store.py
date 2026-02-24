@@ -3,7 +3,7 @@ import socket
 import hashlib
 import json
 from types import SimpleNamespace
-from typing import Annotated
+from typing import Annotated, Any, cast
 import httpx
 import openai
 import pytest
@@ -1740,6 +1740,25 @@ def test_openai_store_connect_rejects_internal_attribute_names_from_metadata(
 
     with pytest.raises(ValueError, match="_raghilda_origin"):
         OpenAIStore.connect(store_id="vs_test")
+
+
+def test_openai_store_connect_rejects_attributes_argument(monkeypatch):
+    class FakeVectorStores:
+        def retrieve(self, *, vector_store_id):
+            return SimpleNamespace(id=vector_store_id, metadata={})
+
+    fake_client = SimpleNamespace(vector_stores=FakeVectorStores())
+
+    def fake_openai_client(*, api_key=None, base_url=None):
+        return fake_client
+
+    monkeypatch.setattr("raghilda._openai_store.openai.Client", fake_openai_client)
+
+    with pytest.raises(TypeError, match="unexpected keyword argument 'attributes'"):
+        cast(Any, OpenAIStore.connect)(
+            store_id="vs_test",
+            attributes={"tenant": str},
+        )
 
 
 def test_openai_store_insert_updates_when_snapshot_download_forbidden():
