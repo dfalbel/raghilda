@@ -1,5 +1,7 @@
 import pytest
 import socket
+import threading
+import time
 from typing import Annotated
 
 pytest.importorskip("chromadb")
@@ -219,6 +221,84 @@ def test_insert_keeps_existing_chunks_when_upsert_fails(monkeypatch):
     )
     assert existing["ids"] == ["same-origin:0"]
     assert existing["documents"] == ["hello world"]
+
+
+def test_insert_same_origin_concurrent_updates_do_not_leave_stale_chunks(monkeypatch):
+    store = ChromaDBStore.create(
+        location=":memory:",
+        embed=DummyEmbeddingFunction(),
+        name="test_store_concurrent_same_origin",
+        overwrite=True,
+    )
+
+    content = "hello world"
+    doc_two_chunks = MarkdownDocument(origin="same-origin", content=content)
+    doc_two_chunks.chunks = [
+        MarkdownChunk(
+            start_index=0,
+            end_index=5,
+            text=content[:5],
+            token_count=5,
+        ),
+        MarkdownChunk(
+            start_index=6,
+            end_index=len(content),
+            text=content[6:],
+            token_count=len(content[6:]),
+        ),
+    ]
+    doc_one_chunk = MarkdownDocument(origin="same-origin", content=content)
+    doc_one_chunk.chunks = [
+        MarkdownChunk(
+            start_index=0,
+            end_index=len(content),
+            text=content,
+            token_count=len(content),
+        )
+    ]
+
+    original_get = store.collection.get
+    original_upsert = store.collection.upsert
+    get_calls = 0
+    get_calls_lock = threading.Lock()
+    both_reads_finished = threading.Event()
+
+    def coordinated_get(*args, **kwargs):
+        nonlocal get_calls
+        result = original_get(*args, **kwargs)
+        with get_calls_lock:
+            get_calls += 1
+            if get_calls >= 2:
+                both_reads_finished.set()
+        both_reads_finished.wait(timeout=0.2)
+        return result
+
+    def ordered_upsert(*args, **kwargs):
+        ids = kwargs.get("ids", [])
+        if len(ids) == 1:
+            time.sleep(0.05)
+        return original_upsert(*args, **kwargs)
+
+    monkeypatch.setattr(store.collection, "get", coordinated_get)
+    monkeypatch.setattr(store.collection, "upsert", ordered_upsert)
+
+    t1 = threading.Thread(
+        target=lambda: store.insert(doc_two_chunks, skip_if_unchanged=False)
+    )
+    t2 = threading.Thread(
+        target=lambda: store.insert(doc_one_chunk, skip_if_unchanged=False)
+    )
+    t1.start()
+    t2.start()
+    t1.join()
+    t2.join()
+
+    existing = store.collection.get(
+        where={"origin": "same-origin"},
+        include=["documents"],
+    )
+    assert sorted(existing["ids"]) == ["same-origin:0"]
+    assert existing["documents"] == [content]
 
 
 def test_insert_stores_document_content_once_in_metadata():

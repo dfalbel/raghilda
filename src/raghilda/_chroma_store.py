@@ -5,6 +5,7 @@ import hashlib
 import importlib
 import json
 from pathlib import Path
+import threading
 from collections.abc import Sized
 from typing import (
     Any,
@@ -480,6 +481,8 @@ class ChromaDBStore(BaseStore):
         self.client = client
         self.collection = collection
         self.metadata = metadata
+        self._origin_locks: dict[str, threading.Lock] = {}
+        self._origin_locks_guard = threading.Lock()
 
     def insert(
         self,
@@ -496,90 +499,99 @@ class ChromaDBStore(BaseStore):
         if not document.origin:
             raise ValueError("document.origin is required for insert().")
 
-        content_hash = hashlib.sha256(document.content.encode("utf-8")).hexdigest()
+        with self._get_origin_lock(document.origin):
+            content_hash = hashlib.sha256(document.content.encode("utf-8")).hexdigest()
 
-        existing = self.collection.get(
-            where={"origin": document.origin},
-            include=["metadatas", "documents"],
-        )
-        existing_ids = list(existing.get("ids") or [])
-        replaced_document = None
-        incoming_signature = self._incoming_chunk_signature(document)
-        if existing_ids and skip_if_unchanged:
-            existing_metadatas = list(existing.get("metadatas") or [])
-            existing_hash = None
-            for metadata in existing_metadatas:
-                if metadata and metadata.get(_CONTENT_HASH_METADATA_KEY):
-                    existing_hash = metadata[_CONTENT_HASH_METADATA_KEY]
-                    break
-            existing_signature = self._existing_chunk_signature(existing)
-            if (
-                existing_hash == content_hash
-                and existing_signature == incoming_signature
-            ):
-                current_document = self._snapshot_document_from_existing(
+            existing = self.collection.get(
+                where={"origin": document.origin},
+                include=["metadatas", "documents"],
+            )
+            existing_ids = list(existing.get("ids") or [])
+            replaced_document = None
+            incoming_signature = self._incoming_chunk_signature(document)
+            if existing_ids and skip_if_unchanged:
+                existing_metadatas = list(existing.get("metadatas") or [])
+                existing_hash = None
+                for metadata in existing_metadatas:
+                    if metadata and metadata.get(_CONTENT_HASH_METADATA_KEY):
+                        existing_hash = metadata[_CONTENT_HASH_METADATA_KEY]
+                        break
+                existing_signature = self._existing_chunk_signature(existing)
+                if (
+                    existing_hash == content_hash
+                    and existing_signature == incoming_signature
+                ):
+                    current_document = self._snapshot_document_from_existing(
+                        existing,
+                        origin=document.origin,
+                    )
+                    return WriteResult(
+                        action="skipped",
+                        document=current_document,
+                    )
+            if existing_ids:
+                replaced_document = self._snapshot_document_from_existing(
                     existing,
                     origin=document.origin,
                 )
-                return WriteResult(
-                    action="skipped",
-                    document=current_document,
+
+            texts = [chunk.text for chunk in document.chunks]
+
+            ids = []
+            chunk_attributes_records = []
+            for idx, chunk in enumerate(document.chunks):
+                resolved_attributes = merge_attribute_values(
+                    attributes_spec=self.metadata.attributes_spec,
+                    sources=[document.attributes, chunk.attributes],
                 )
-        if existing_ids:
-            replaced_document = self._snapshot_document_from_existing(
-                existing,
+                ids.append(f"{document.origin}:{idx}")
+                chunk_record = {
+                    "doc_id": document.id,
+                    "chunk_id": idx,
+                    "start_index": chunk.start_index,
+                    "end_index": chunk.end_index,
+                    "token_count": chunk.token_count,
+                    "context": chunk.context,
+                    "origin": document.origin,
+                    _CONTENT_HASH_METADATA_KEY: content_hash,
+                }
+                if idx == 0:
+                    chunk_record[_CONTENT_TEXT_METADATA_KEY] = document.content
+                chunk_record.update(resolved_attributes)
+                chunk_attributes_records.append(
+                    {k: v for k, v in chunk_record.items() if v is not None}
+                )
+
+            self.collection.upsert(
+                ids=ids,
+                documents=texts,
+                metadatas=chunk_attributes_records,
+            )
+            stale_ids = [
+                existing_id for existing_id in existing_ids if existing_id not in ids
+            ]
+            if stale_ids:
+                self.collection.delete(ids=stale_ids)
+            current_document = MarkdownDocument(
+                id=document.id,
                 origin=document.origin,
+                content=document.content,
+                chunks=document.chunks,
+                attributes=document.attributes,
+            )
+            return WriteResult(
+                action="updated" if existing_ids else "inserted",
+                document=current_document,
+                replaced_document=replaced_document,
             )
 
-        texts = [chunk.text for chunk in document.chunks]
-
-        ids = []
-        chunk_attributes_records = []
-        for idx, chunk in enumerate(document.chunks):
-            resolved_attributes = merge_attribute_values(
-                attributes_spec=self.metadata.attributes_spec,
-                sources=[document.attributes, chunk.attributes],
-            )
-            ids.append(f"{document.origin}:{idx}")
-            chunk_record = {
-                "doc_id": document.id,
-                "chunk_id": idx,
-                "start_index": chunk.start_index,
-                "end_index": chunk.end_index,
-                "token_count": chunk.token_count,
-                "context": chunk.context,
-                "origin": document.origin,
-                _CONTENT_HASH_METADATA_KEY: content_hash,
-            }
-            if idx == 0:
-                chunk_record[_CONTENT_TEXT_METADATA_KEY] = document.content
-            chunk_record.update(resolved_attributes)
-            chunk_attributes_records.append(
-                {k: v for k, v in chunk_record.items() if v is not None}
-            )
-
-        self.collection.upsert(
-            ids=ids,
-            documents=texts,
-            metadatas=chunk_attributes_records,
-        )
-        stale_ids = [
-            existing_id for existing_id in existing_ids if existing_id not in ids
-        ]
-        if stale_ids:
-            self.collection.delete(ids=stale_ids)
-        current_document = MarkdownDocument(
-            id=document.id,
-            origin=document.origin,
-            content=document.content,
-            chunks=document.chunks,
-            attributes=document.attributes,
-        )
-        return WriteResult(
-            action="updated" if existing_ids else "inserted",
-            document=current_document,
-            replaced_document=replaced_document,
-        )
+    def _get_origin_lock(self, origin: str) -> threading.Lock:
+        with self._origin_locks_guard:
+            lock = self._origin_locks.get(origin)
+            if lock is None:
+                lock = threading.Lock()
+                self._origin_locks[origin] = lock
+            return lock
 
     def ingest(
         self,
