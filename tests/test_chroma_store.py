@@ -173,7 +173,7 @@ def test_insert_same_content_but_different_chunking_updates():
         ),
     ]
     second = store.insert(doc2)
-    assert second.action == "updated"
+    assert second.action == "replaced"
     assert second.document.chunks is not None
     assert len(second.document.chunks) == 2
     assert store.collection.count() == 2

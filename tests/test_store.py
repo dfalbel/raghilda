@@ -197,7 +197,7 @@ class TestDuckDBStore:
             ),
         ]
         second = store.insert(doc2)
-        assert second.action == "updated"
+        assert second.action == "replaced"
         assert embed.calls == calls_after_create + 2
 
         chunk_count = store.con.execute(
@@ -240,7 +240,7 @@ class TestDuckDBStore:
             )
         ]
         second = store.insert(doc2)
-        assert second.action == "updated"
+        assert second.action == "replaced"
         assert embed.calls == calls_after_create + 2
 
     def test_insert_same_multi_chunk_layout_skips_when_unchanged(self):
@@ -331,7 +331,7 @@ class TestDuckDBStore:
         ]
 
         updated = store.insert(second)
-        assert updated.action == "updated"
+        assert updated.action == "replaced"
         assert updated.document.origin == "doc-1"
         assert updated.document.content == "goodbye world"
         assert updated.replaced_document is not None
@@ -341,7 +341,7 @@ class TestDuckDBStore:
         assert len(updated.replaced_document.chunks) == 1
 
         restored = store.insert(updated.replaced_document, skip_if_unchanged=False)
-        assert restored.action == "updated"
+        assert restored.action == "replaced"
         current = store.con.execute(
             "SELECT text FROM documents WHERE origin = 'doc-1'"
         ).fetchone()
@@ -388,7 +388,7 @@ class TestDuckDBStore:
             ),
         ]
         updated = store.insert(second)
-        assert updated.action == "updated"
+        assert updated.action == "replaced"
         assert updated.replaced_document is not None
         assert updated.replaced_document.chunks is not None
         assert [chunk.text for chunk in updated.replaced_document.chunks] == [
@@ -1390,7 +1390,7 @@ def test_openai_store_insert_updates_when_attributes_change_for_same_content():
             attributes={"tenant": "new"},
         )
     )
-    assert result.action == "updated"
+    assert result.action == "replaced"
     assert result.replaced_document is not None
     assert result.replaced_document.content == content
     assert fake_vector_store_files.deleted_ids == ["file_old"]
@@ -1797,7 +1797,7 @@ def test_openai_store_insert_updates_when_snapshot_download_forbidden():
         )
     )
 
-    assert result.action == "updated"
+    assert result.action == "replaced"
     assert result.replaced_document is None
     assert fake_vector_store_files.deleted_ids == ["file_old"]
     assert len(fake_vector_store_files.upload_calls) == 1

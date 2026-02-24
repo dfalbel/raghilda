@@ -18,7 +18,7 @@ from typing import (
 )
 from concurrent.futures import ThreadPoolExecutor
 
-from ._store import BaseStore, WriteResult
+from ._store import BaseStore, InsertResult
 from ._utils import lazy_map
 from .chunk import Chunk, MarkdownChunk, RetrievedChunk, Metric
 from .chunker import MarkdownChunker
@@ -499,7 +499,7 @@ class ChromaDBStore(BaseStore):
         document: Document,
         *,
         skip_if_unchanged: bool = True,
-    ) -> WriteResult:
+    ) -> InsertResult:
         if not isinstance(document, MarkdownDocument):
             raise ValueError("Only MarkdownDocument is supported for ChromaDBStore")
         if document.chunks is None:
@@ -535,7 +535,7 @@ class ChromaDBStore(BaseStore):
                         existing,
                         origin=document.origin,
                     )
-                    return WriteResult(
+                    return InsertResult(
                         action="skipped",
                         document=current_document,
                     )
@@ -589,8 +589,8 @@ class ChromaDBStore(BaseStore):
                 chunks=document.chunks,
                 attributes=document.attributes,
             )
-            return WriteResult(
-                action="updated" if existing_ids else "inserted",
+            return InsertResult(
+                action="replaced" if existing_ids else "inserted",
                 document=current_document,
                 replaced_document=replaced_document,
             )

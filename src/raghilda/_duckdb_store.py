@@ -1,4 +1,4 @@
-from ._store import BaseStore, WriteResult
+from ._store import BaseStore, InsertResult
 from collections.abc import Sized
 import json
 import os
@@ -408,7 +408,7 @@ class DuckDBStore(BaseStore):
         document: Document,
         *,
         skip_if_unchanged: bool = True,
-    ) -> WriteResult:
+    ) -> InsertResult:
         if not isinstance(document, MarkdownDocument):
             raise NotImplementedError(
                 f"Insert not implemented for type {type(document)}"
@@ -440,7 +440,7 @@ class DuckDBStore(BaseStore):
                     origin=document.origin,
                     text=existing["text"],
                 )
-                return WriteResult(
+                return InsertResult(
                     action="skipped",
                     document=current_document,
                 )
@@ -464,7 +464,7 @@ class DuckDBStore(BaseStore):
                     origin=document.origin,
                     text=existing["text"],
                 )
-                return WriteResult(
+                return InsertResult(
                     action="skipped",
                     document=current_document,
                 )
@@ -473,7 +473,7 @@ class DuckDBStore(BaseStore):
             replaced_document: MarkdownDocument | None = None
             result_doc_id = document.id
             if existing is not None:
-                action = "updated"
+                action = "replaced"
                 doc_id = existing["doc_id"]
                 result_doc_id = doc_id
                 replaced_document = self._load_document_snapshot(
@@ -486,7 +486,7 @@ class DuckDBStore(BaseStore):
 
             try:
                 self.con.begin()
-                if action == "updated":
+                if action == "replaced":
                     self.con.execute(
                         "DELETE FROM embeddings WHERE doc_id = ?",
                         [doc_row["doc_id"][0]],
@@ -513,7 +513,7 @@ class DuckDBStore(BaseStore):
             chunks=document.chunks,
             attributes=document.attributes,
         )
-        return WriteResult(
+        return InsertResult(
             action=action,
             document=current_document,
             replaced_document=replaced_document,

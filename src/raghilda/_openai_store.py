@@ -1,7 +1,7 @@
 import openai
 import json
 import hashlib
-from ._store import BaseStore, WriteResult
+from ._store import BaseStore, InsertResult
 from .chunk import MarkdownChunk, RetrievedChunk, Metric
 from .document import Document, MarkdownDocument
 from typing import Any, Mapping, Optional, Sequence
@@ -266,7 +266,7 @@ class OpenAIStore(BaseStore):
         document: Document,
         *,
         skip_if_unchanged: bool = True,
-    ) -> WriteResult:
+    ) -> InsertResult:
         # Upload the document content as a file to the vector store
         # create a temporary file, write the content to it, and upload it
         if not isinstance(document, MarkdownDocument):
@@ -323,7 +323,7 @@ class OpenAIStore(BaseStore):
                         chunks=document.chunks,
                         attributes=document.attributes,
                     )
-                return WriteResult(
+                return InsertResult(
                     action="skipped",
                     document=current_document,
                 )
@@ -368,8 +368,8 @@ class OpenAIStore(BaseStore):
             chunks=document.chunks,
             attributes=document.attributes,
         )
-        return WriteResult(
-            action="updated" if existing_files else "inserted",
+        return InsertResult(
+            action="replaced" if existing_files else "inserted",
             document=current_document,
             replaced_document=replaced_document,
         )
