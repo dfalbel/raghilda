@@ -951,7 +951,9 @@ class ChromaDBStore(BaseStore):
                 break
 
         if doc_id is None:
-            return MarkdownDocument(origin=origin, content=content, chunks=chunks)
+            raise ValueError(
+                f"Corrupted Chroma store for origin '{origin}': missing required doc_id in chunk metadata"
+            )
         return MarkdownDocument(
             id=doc_id, origin=origin, content=content, chunks=chunks
         )

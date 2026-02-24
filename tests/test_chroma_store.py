@@ -224,6 +224,56 @@ def test_insert_keeps_existing_chunks_when_upsert_fails(monkeypatch):
     assert existing["documents"] == ["hello world"]
 
 
+def test_insert_raises_when_existing_metadata_missing_doc_id(monkeypatch):
+    store = ChromaDBStore.create(
+        location=":memory:",
+        embed=DummyEmbeddingFunction(),
+        name="test_store_missing_doc_id",
+        overwrite=True,
+    )
+
+    original = MarkdownDocument(origin="same-origin", content="hello world")
+    original.chunks = [
+        MarkdownChunk(
+            start_index=0,
+            end_index=len(original.content),
+            text=original.content,
+            token_count=len(original.content),
+        )
+    ]
+    store.insert(original)
+
+    original_get = store.collection.get
+
+    def missing_doc_id_get(*args, **kwargs):
+        result = original_get(*args, **kwargs)
+        metadatas = []
+        for metadata in result.get("metadatas") or []:
+            if metadata is None:
+                metadatas.append(None)
+                continue
+            without_doc_id = dict(metadata)
+            without_doc_id.pop("doc_id", None)
+            metadatas.append(without_doc_id)
+        result["metadatas"] = metadatas
+        return result
+
+    monkeypatch.setattr(store.collection, "get", missing_doc_id_get)
+
+    updated = MarkdownDocument(origin="same-origin", content="updated content")
+    updated.chunks = [
+        MarkdownChunk(
+            start_index=0,
+            end_index=len(updated.content),
+            text=updated.content,
+            token_count=len(updated.content),
+        )
+    ]
+
+    with pytest.raises(ValueError, match="missing required doc_id"):
+        store.insert(updated, skip_if_unchanged=False)
+
+
 def test_insert_same_origin_concurrent_updates_do_not_leave_stale_chunks(monkeypatch):
     store = ChromaDBStore.create(
         location=":memory:",
