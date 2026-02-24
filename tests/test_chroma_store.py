@@ -30,9 +30,20 @@ def _require_openai_integration() -> None:
 
 
 class DummyEmbeddingFunction(EmbeddingFunction):
+    def __init__(self) -> None:
+        pass
+
     @staticmethod
     def name() -> str:
         return "test_embedding_function"
+
+    @staticmethod
+    def build_from_config(config: dict) -> "DummyEmbeddingFunction":
+        DummyEmbeddingFunction.validate_config(config)
+        return DummyEmbeddingFunction()
+
+    def get_config(self) -> dict:
+        return {}
 
     def _embed(self, input: Documents) -> Embeddings:
         embeddings = []
@@ -271,6 +282,29 @@ def test_connect_with_embed(tmp_path):
     assert store2.size() == 1
     results = store2.retrieve("document", top_k=1)
     assert len(results) == 1
+
+
+def test_connect_restores_attributes_schema(tmp_path):
+    location = tmp_path / "chroma_store_with_attributes"
+    store = ChromaDBStore.create(
+        location=str(location),
+        embed=DummyEmbeddingFunction(),
+        name="connect_attributes_test",
+        overwrite=True,
+        attributes={"tenant": str, "priority": int},
+    )
+    doc = _make_doc()
+    doc.attributes = {"tenant": "docs", "priority": 1}
+    store.insert(doc)
+    if hasattr(store.client, "persist"):
+        store.client.persist()
+
+    store2 = ChromaDBStore.connect(
+        location=str(location),
+        name="connect_attributes_test",
+        embed=DummyEmbeddingFunction(),
+    )
+    assert store2.metadata.attributes_schema == {"tenant": str, "priority": int}
 
 
 def _make_doc_with_overlapping_chunks():

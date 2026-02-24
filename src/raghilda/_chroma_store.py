@@ -466,13 +466,6 @@ class ChromaDBStore(BaseStore):
                 allow_struct_types=False,
                 allow_optional_values=False,
             )
-        attributes_spec = normalize_attributes_spec(
-            attributes=attributes_spec,
-            reserved_columns=_RESERVED_SYSTEM_COLUMNS,
-            allow_vector_types=False,
-            allow_struct_types=False,
-            allow_optional_values=False,
-        )
         return ChromaDBStore(
             client=client,
             collection=collection,

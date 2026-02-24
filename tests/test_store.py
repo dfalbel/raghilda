@@ -60,6 +60,8 @@ def _run_openai_or_skip(fn, *args, **kwargs):
         return fn(*args, **kwargs)
     except openai.AuthenticationError:
         pytest.skip("OPENAI_API_KEY is invalid for OpenAI integration tests")
+    except openai.APIConnectionError:
+        pytest.skip("OpenAI API connection failed during integration test")
 
 
 def test_run_openai_or_skip_skips_on_auth_error():
@@ -74,6 +76,15 @@ def test_run_openai_or_skip_skips_on_auth_error():
 
     with pytest.raises(pytest.skip.Exception):
         _run_openai_or_skip(_raise_auth_error)
+
+
+def test_run_openai_or_skip_skips_on_connection_error():
+    def _raise_connection_error():
+        request = httpx.Request("GET", "https://api.openai.com/v1/models")
+        raise openai.APIConnectionError(request=request)
+
+    with pytest.raises(pytest.skip.Exception):
+        _run_openai_or_skip(_raise_connection_error)
 
 
 class TestDuckDBStore:
@@ -1792,7 +1803,8 @@ def test_ingest():
 
     links = find_links("https://r4ds.hadley.nz/base-R.html", validate=True)
 
-    store = DuckDBStore.create(
+    store = _run_openai_or_skip(
+        DuckDBStore.create,
         location=":memory:",
         embed=EmbeddingOpenAI(),
         overwrite=True,
@@ -1806,7 +1818,7 @@ def test_ingest():
     def prepare(uri: str):
         return chunker.chunk_document(read_as_markdown(uri))
 
-    store.ingest(links, prepare=prepare)
+    _run_openai_or_skip(store.ingest, links, prepare=prepare)
 
 
 def test_ingest_with_generator():
@@ -1928,7 +1940,8 @@ def test_connect(tmp_path):
     db_path = tmp_path / "test.db"
 
     # Create a store with embeddings
-    store = DuckDBStore.create(
+    store = _run_openai_or_skip(
+        DuckDBStore.create,
         location=str(db_path),
         embed=EmbeddingOpenAI(model="text-embedding-3-small"),
         name="connect_test",
@@ -1936,7 +1949,7 @@ def test_connect(tmp_path):
     )
     doc = MarkdownDocument(origin="test", content="hello world")
     doc.chunks = [_get_markdown_chunk(doc, start=0, end=5)]
-    store.insert(doc)
+    _run_openai_or_skip(store.insert, doc)
     store.build_index()
     store.con.close()
 
@@ -1952,6 +1965,6 @@ def test_connect(tmp_path):
     assert store2.metadata.embed.model == "text-embedding-3-small"
 
     # Retrieve should work (uses both BM25 and VSS)
-    results = store2.retrieve("hello", top_k=1)
+    results = _run_openai_or_skip(store2.retrieve, "hello", top_k=1)
     assert len(results) >= 1
     assert results[0].text == "hello"
