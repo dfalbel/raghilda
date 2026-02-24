@@ -511,35 +511,12 @@ class OpenAIStore(BaseStore):
         origin = attributes.get(_INTERNAL_ORIGIN_ATTRIBUTE_KEY)
         if origin:
             return str(origin)
-        filename = getattr(vector_store_file, "filename", None) or ""
-        filename_origin = self._origin_from_filename(filename)
-        if filename_origin:
-            return filename_origin
         return None
 
     def _matches_existing_origin(self, vector_store_file: Any, origin: str) -> bool:
         attributes = dict(getattr(vector_store_file, "attributes", None) or {})
         managed_origin = attributes.get(_INTERNAL_ORIGIN_ATTRIBUTE_KEY)
-        if managed_origin:
-            return str(managed_origin) == origin
-        filename = getattr(vector_store_file, "filename", None) or ""
-        if self._origin_from_filename(filename) != origin:
-            return False
-        # Legacy fallback: pre-upgrade files may not have internal metadata.
-        # Accept filename matches for files that look like legacy raghilda
-        # records (no attributes, or attributes restricted to declared schema).
-        if attributes.get(_INTERNAL_CONTENT_HASH_ATTRIBUTE_KEY) is not None:
-            return True
-        if not attributes:
-            return True
-        return all(key in self.attributes_schema for key in attributes)
-
-    def _origin_from_filename(self, filename: str) -> Optional[str]:
-        if not filename:
-            return None
-        if filename.endswith(".md"):
-            return filename[:-3]
-        return filename
+        return str(managed_origin) == origin if managed_origin else False
 
 
 def _normalize_openai_attributes(

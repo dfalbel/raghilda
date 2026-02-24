@@ -1488,7 +1488,7 @@ def test_openai_store_insert_rejects_too_many_user_attributes():
     assert fake_vector_store_files.upload_calls == []
 
 
-def test_openai_store_insert_matches_legacy_file_by_filename():
+def test_openai_store_insert_ignores_matching_filename_without_internal_origin():
     content = "hello world"
 
     class FakePage:
@@ -1508,7 +1508,7 @@ def test_openai_store_insert_matches_legacy_file_by_filename():
             self.page = FakePage(
                 [
                     SimpleNamespace(
-                        id="file_legacy",
+                        id="file_existing",
                         created_at=1,
                         filename="doc.md",
                         attributes={
@@ -1529,15 +1529,10 @@ def test_openai_store_insert_matches_legacy_file_by_filename():
             self.upload_calls.append(kwargs)
             return SimpleNamespace(id="file_new")
 
-    class FakeFiles:
-        def content(self, file_id):
-            assert file_id == "file_legacy"
-            return SimpleNamespace(content=content.encode("utf-8"))
-
     fake_vector_store_files = FakeVectorStoreFiles()
     fake_client = SimpleNamespace(
         vector_stores=SimpleNamespace(files=fake_vector_store_files),
-        files=FakeFiles(),
+        files=SimpleNamespace(content=lambda file_id: SimpleNamespace(content=b"")),
     )
     store = OpenAIStore(
         client=fake_client,
@@ -1552,11 +1547,9 @@ def test_openai_store_insert_matches_legacy_file_by_filename():
             attributes={"tenant": "new"},
         )
     )
-    assert result.action == "updated"
-    assert result.replaced_document is not None
-    assert result.replaced_document.origin == "doc"
-    assert result.replaced_document.content == content
-    assert fake_vector_store_files.deleted_ids == ["file_legacy"]
+    assert result.action == "inserted"
+    assert result.replaced_document is None
+    assert fake_vector_store_files.deleted_ids == []
     assert len(fake_vector_store_files.upload_calls) == 1
     assert fake_vector_store_files.upload_calls[0]["attributes"]["tenant"] == "new"
 
