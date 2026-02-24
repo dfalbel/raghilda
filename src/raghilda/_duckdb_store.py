@@ -707,7 +707,10 @@ class DuckDBStore(BaseStore):
                 chunk.text,
                 chunk.context,
             ]
-            row.extend(resolved[col] for col in attributes_columns)
+            row.extend(
+                self._coerce_chunk_layout_attribute_value(col, resolved[col])
+                for col in attributes_columns
+            )
             records.append(tuple(row))
         records.sort(key=lambda item: (item[0], item[1]))
         return records
@@ -740,12 +743,22 @@ class DuckDBStore(BaseStore):
             start_index = int(row[0])
             end_index = int(row[1])
             context = row[2]
-            attribute_values = list(row[3:])
+            attribute_values = [
+                self._coerce_chunk_layout_attribute_value(col, row[3 + idx])
+                for idx, col in enumerate(attributes_columns)
+            ]
             chunk_text = document_text[start_index:end_index]
             records.append(
                 (start_index, end_index, chunk_text, context, *attribute_values)
             )
         return records
+
+    def _coerce_chunk_layout_attribute_value(self, column: str, value: Any) -> Any:
+        return coerce_attribute_value_for_output(
+            column,
+            value,
+            self.metadata.attributes_schema[column],
+        )
 
     def _load_document_snapshot(
         self, *, doc_id: str, origin: str, text: str

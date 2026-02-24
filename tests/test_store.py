@@ -653,6 +653,42 @@ class TestDuckDBStore:
                 attributes_filter="embedding25 = 1",
             )
 
+    def test_insert_same_vector_attributes_skips_when_unchanged(self):
+        embed = CountingEmbedding()
+        store = DuckDBStore.create(
+            location=":memory:",
+            embed=embed,
+            overwrite=True,
+            attributes={
+                "tenant": str,
+                "embedding3": Annotated[list[float], 3],
+            },
+        )
+        calls_after_create = embed.calls
+
+        vector = [1.0, 2.0, 3.0]
+        doc = MarkdownDocument(
+            origin="vector-unchanged",
+            content="hello vector unchanged",
+            attributes={"tenant": "docs", "embedding3": vector},
+        )
+        doc.chunks = [
+            MarkdownChunk(
+                start_index=0,
+                end_index=len(doc.content),
+                text=doc.content,
+                token_count=len(doc.content),
+            )
+        ]
+
+        first = store.insert(doc)
+        assert first.action == "inserted"
+        assert embed.calls == calls_after_create + 1
+
+        second = store.insert(doc)
+        assert second.action == "skipped"
+        assert embed.calls == calls_after_create + 1
+
     def test_insert_and_retrieve_with_attributes_filter(self):
         store = DuckDBStore.create(
             location=":memory:",
