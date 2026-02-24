@@ -1803,6 +1803,82 @@ def test_openai_store_insert_updates_when_snapshot_download_forbidden():
     assert len(fake_vector_store_files.upload_calls) == 1
 
 
+def test_openai_store_insert_updates_when_snapshot_download_connection_error():
+    new_content = "hello world updated"
+    old_hash = hashlib.sha256("hello world".encode("utf-8")).hexdigest()
+
+    class FakePage:
+        def __init__(self, data):
+            self.data = data
+
+        def has_next_page(self):
+            return False
+
+        def get_next_page(self):
+            raise AssertionError("No next page expected")
+
+    class FakeVectorStoreFiles:
+        def __init__(self):
+            self.deleted_ids = []
+            self.upload_calls = []
+            self.page = FakePage(
+                [
+                    SimpleNamespace(
+                        id="file_old",
+                        created_at=1,
+                        filename="doc.md",
+                        attributes={
+                            "_raghilda_origin": "doc",
+                            "_raghilda_content_hash": old_hash,
+                            "tenant": "old",
+                        },
+                    )
+                ]
+            )
+
+        def list(self, **kwargs):
+            return self.page
+
+        def delete(self, file_id, **kwargs):
+            self.deleted_ids.append(file_id)
+            return SimpleNamespace(id=file_id, deleted=True)
+
+        def upload_and_poll(self, **kwargs):
+            self.upload_calls.append(kwargs)
+            return SimpleNamespace(id="file_new")
+
+    class FakeFiles:
+        def content(self, file_id):
+            request = httpx.Request(
+                "GET", f"https://api.openai.com/v1/files/{file_id}/content"
+            )
+            raise openai.APIConnectionError(request=request)
+
+    fake_vector_store_files = FakeVectorStoreFiles()
+    fake_client = SimpleNamespace(
+        vector_stores=SimpleNamespace(files=fake_vector_store_files),
+        files=FakeFiles(),
+    )
+    store = OpenAIStore(
+        client=fake_client,
+        store_id="vs_test",
+        attributes={"tenant": str},
+    )
+
+    result = store.insert(
+        MarkdownDocument(
+            origin="doc",
+            content=new_content,
+            attributes={"tenant": "new"},
+        )
+    )
+
+    assert result.action == "replaced"
+    assert result.replaced_document is None
+    assert fake_vector_store_files.deleted_ids == ["file_old"]
+    assert len(fake_vector_store_files.upload_calls) == 1
+
+
 def _get_markdown_chunk(doc, start, end):
     return MarkdownChunk(
         start_index=start,

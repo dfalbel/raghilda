@@ -477,7 +477,7 @@ class OpenAIStore(BaseStore):
 
         try:
             response = self.client.files.content(file_id=vector_store_file.id)
-        except openai.BadRequestError:
+        except openai.APIError:
             return None
         raw = response.content
         content = raw.decode("utf-8") if isinstance(raw, bytes) else str(raw)
