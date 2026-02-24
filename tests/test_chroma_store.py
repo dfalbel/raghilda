@@ -142,9 +142,14 @@ def test_insert_same_content_but_different_chunking_updates():
         embed=DummyEmbeddingFunction(),
         name="test_store_chunk_update",
         overwrite=True,
+        attributes={"tenant": str},
     )
     content = "hello world"
-    doc1 = MarkdownDocument(origin="same-origin", content=content)
+    doc1 = MarkdownDocument(
+        origin="same-origin",
+        content=content,
+        attributes={"tenant": "docs"},
+    )
     doc1.chunks = [
         MarkdownChunk(
             start_index=0,
@@ -157,7 +162,11 @@ def test_insert_same_content_but_different_chunking_updates():
     assert first.action == "inserted"
     assert store.collection.count() == 1
 
-    doc2 = MarkdownDocument(origin="same-origin", content=content)
+    doc2 = MarkdownDocument(
+        origin="same-origin",
+        content=content,
+        attributes={"tenant": "eng"},
+    )
     doc2.chunks = [
         MarkdownChunk(
             start_index=0,
@@ -174,9 +183,41 @@ def test_insert_same_content_but_different_chunking_updates():
     ]
     second = store.insert(doc2)
     assert second.action == "replaced"
+    assert second.replaced_document is not None
+    assert second.replaced_document.attributes == {"tenant": "docs"}
     assert second.document.chunks is not None
     assert len(second.document.chunks) == 2
     assert store.collection.count() == 2
+
+
+def test_insert_unchanged_preserves_document_attributes():
+    store = ChromaDBStore.create(
+        location=":memory:",
+        embed=DummyEmbeddingFunction(),
+        name="test_store_skip_attributes",
+        overwrite=True,
+        attributes={"tenant": str},
+    )
+
+    content = "hello world"
+    doc = MarkdownDocument(
+        origin="same-origin",
+        content=content,
+        attributes={"tenant": "docs"},
+    )
+    doc.chunks = [
+        MarkdownChunk(
+            start_index=0,
+            end_index=len(content),
+            text=content,
+            token_count=len(content),
+        )
+    ]
+
+    store.insert(doc)
+    second = store.insert(doc)
+    assert second.action == "skipped"
+    assert second.document.attributes == {"tenant": "docs"}
 
 
 def test_insert_keeps_existing_chunks_when_upsert_fails(monkeypatch):

@@ -915,6 +915,7 @@ class ChromaDBStore(BaseStore):
                     content = "".join(chars)
 
         chunk_rows: list[tuple[int, Chunk]] = []
+        document_attributes: dict[str, Any] = {}
         for idx, (chunk_text, metadata) in enumerate(
             zip(chunk_texts, chunk_metadatas, strict=False)
         ):
@@ -927,6 +928,9 @@ class ChromaDBStore(BaseStore):
                 for key in self.metadata.attributes_schema
                 if metadata.get(key) is not None
             }
+            for key, value in attributes.items():
+                if key not in document_attributes:
+                    document_attributes[key] = value
             chunk_rows.append(
                 (
                     chunk_id,
@@ -955,5 +959,9 @@ class ChromaDBStore(BaseStore):
                 f"Corrupted Chroma store for origin '{origin}': missing required doc_id in chunk metadata"
             )
         return MarkdownDocument(
-            id=doc_id, origin=origin, content=content, chunks=chunks
+            id=doc_id,
+            origin=origin,
+            content=content,
+            chunks=chunks,
+            attributes=document_attributes or None,
         )
