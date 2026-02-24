@@ -519,16 +519,16 @@ class DuckDBStore(BaseStore):
                     pass
                 raise
 
-        current_document = self._load_document_snapshot(
-            doc_id=result_doc_id,
-            origin=document.origin,
-            text=document.content,
-        )
-        return InsertResult(
-            action=action,
-            document=current_document,
-            replaced_document=replaced_document,
-        )
+            current_document = self._load_document_snapshot(
+                doc_id=result_doc_id,
+                origin=document.origin,
+                text=document.content,
+            )
+            return InsertResult(
+                action=action,
+                document=current_document,
+                replaced_document=replaced_document,
+            )
 
     def ingest(
         self,

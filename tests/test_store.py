@@ -1119,6 +1119,56 @@ class TestDuckDBStore:
             "priority": 0,
         }
 
+    def test_insert_snapshot_reads_are_serialized_under_db_lock(self, monkeypatch):
+        store = DuckDBStore.create(
+            location=":memory:",
+            embed=None,
+            overwrite=True,
+            attributes={"tenant": str, "priority": (int, 0)},
+        )
+
+        observed_lock_states: list[bool] = []
+        original_snapshot = store._load_document_snapshot
+
+        def wrapped_snapshot(*, doc_id: str, origin: str, text: str):
+            observed_lock_states.append(store._db_lock.locked())
+            return original_snapshot(doc_id=doc_id, origin=origin, text=text)
+
+        monkeypatch.setattr(store, "_load_document_snapshot", wrapped_snapshot)
+
+        first = MarkdownDocument(
+            origin="lock-snapshot-test",
+            content="alpha",
+            attributes={"tenant": "docs"},
+        )
+        first.chunks = [
+            MarkdownChunk(
+                start_index=0,
+                end_index=5,
+                text="alpha",
+                token_count=5,
+            )
+        ]
+        store.insert(first, skip_if_unchanged=False)
+
+        second = MarkdownDocument(
+            origin="lock-snapshot-test",
+            content="alpha beta",
+            attributes={"tenant": "docs"},
+        )
+        second.chunks = [
+            MarkdownChunk(
+                start_index=0,
+                end_index=10,
+                text="alpha beta",
+                token_count=10,
+            )
+        ]
+        store.insert(second, skip_if_unchanged=False)
+
+        assert observed_lock_states
+        assert all(observed_lock_states)
+
     def test_insert_missing_required_attribute_fails(self):
         store = DuckDBStore.create(
             location=":memory:",
