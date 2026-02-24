@@ -424,7 +424,8 @@ class DuckDBStore(BaseStore):
         # Hold the lock here to avoid unnecessary embedding work when the
         # existing stored content/chunk layout is identical.
         with self._db_lock:
-            existing = self._get_existing_document_by_origin(document.origin)
+            existing_rows = self._get_existing_documents_by_origin(document.origin)
+            existing = existing_rows[0] if len(existing_rows) == 1 else None
             if (
                 skip_if_unchanged
                 and existing is not None
@@ -448,7 +449,8 @@ class DuckDBStore(BaseStore):
         doc_row, chunk_rows = self._prepare_chunked_document_rows(document)
 
         with self._db_lock:
-            existing = self._get_existing_document_by_origin(document.origin)
+            existing_rows = self._get_existing_documents_by_origin(document.origin)
+            existing = existing_rows[0] if len(existing_rows) == 1 else None
             if (
                 skip_if_unchanged
                 and existing is not None
@@ -472,25 +474,36 @@ class DuckDBStore(BaseStore):
             action = "inserted"
             replaced_document: MarkdownDocument | None = None
             result_doc_id = document.id
-            if existing is not None:
+            replaced_doc_ids: list[str] = []
+            stale_doc_ids: list[str] = []
+            if existing_rows:
                 action = "replaced"
-                doc_id = existing["doc_id"]
+                doc_id = existing_rows[0]["doc_id"]
                 result_doc_id = doc_id
                 replaced_document = self._load_document_snapshot(
                     doc_id=doc_id,
                     origin=document.origin,
-                    text=existing["text"],
+                    text=existing_rows[0]["text"],
                 )
                 doc_row["doc_id"] = doc_id
                 chunk_rows["doc_id"] = [doc_id] * len(chunk_rows)
+                stale_doc_ids = [row["doc_id"] for row in existing_rows[1:]]
+                replaced_doc_ids = [doc_id, *stale_doc_ids]
 
             try:
                 self.con.begin()
                 if action == "replaced":
+                    placeholders = ", ".join("?" for _ in replaced_doc_ids)
                     self.con.execute(
-                        "DELETE FROM embeddings WHERE doc_id = ?",
-                        [doc_row["doc_id"][0]],
+                        f"DELETE FROM embeddings WHERE doc_id IN ({placeholders})",
+                        replaced_doc_ids,
                     )
+                    if stale_doc_ids:
+                        stale_placeholders = ", ".join("?" for _ in stale_doc_ids)
+                        self.con.execute(
+                            f"DELETE FROM documents WHERE doc_id IN ({stale_placeholders})",
+                            stale_doc_ids,
+                        )
                     self.con.execute(
                         "UPDATE documents SET text = ? WHERE doc_id = ?",
                         [doc_row["text"][0], doc_row["doc_id"][0]],
@@ -672,17 +685,18 @@ class DuckDBStore(BaseStore):
 
         return doc, chunks
 
-    def _get_existing_document_by_origin(self, origin: str) -> Optional[dict[str, str]]:
-        row = self.con.execute(
-            "SELECT doc_id, text FROM documents WHERE origin = ? LIMIT 1",
+    def _get_existing_documents_by_origin(self, origin: str) -> list[dict[str, str]]:
+        rows = self.con.execute(
+            "SELECT doc_id, text FROM documents WHERE origin = ? ORDER BY doc_id",
             [origin],
-        ).fetchone()
-        if row is None:
-            return None
-        return {
-            "doc_id": row[0],
-            "text": row[1],
-        }
+        ).fetchall()
+        return [
+            {
+                "doc_id": row[0],
+                "text": row[1],
+            }
+            for row in rows
+        ]
 
     def _chunk_layout_matches_existing(
         self, *, chunked_doc: MarkdownDocument, doc_id: str, document_text: str

@@ -396,6 +396,112 @@ class TestDuckDBStore:
             "world",
         ]
 
+    def test_insert_replaced_removes_legacy_duplicate_origin_rows(self):
+        store = DuckDBStore.create(
+            location=":memory:",
+            embed=None,
+            overwrite=True,
+            name="insert_replace_duplicate_origin_cleanup",
+        )
+        first = MarkdownDocument(origin="doc-1", content="hello world")
+        first.chunks = [
+            MarkdownChunk(
+                start_index=0,
+                end_index=len(first.content),
+                text=first.content,
+                token_count=len(first.content),
+            )
+        ]
+        inserted = store.insert(first)
+        assert inserted.action == "inserted"
+
+        # Simulate a legacy schema/state where multiple rows can share an origin.
+        store.con.execute(
+            "CREATE TABLE _legacy_documents AS SELECT doc_id, origin, text FROM documents"
+        )
+        store.con.execute(
+            "CREATE TABLE _legacy_embeddings AS SELECT doc_id, chunk_id, start_index, end_index, context FROM embeddings"
+        )
+        store.con.execute("DROP VIEW chunks")
+        store.con.execute("DROP TABLE embeddings")
+        store.con.execute("DROP TABLE documents")
+        store.con.execute(
+            """
+            CREATE TABLE documents (
+                doc_id VARCHAR PRIMARY KEY,
+                origin VARCHAR,
+                text VARCHAR
+            )
+            """
+        )
+        store.con.execute(
+            """
+            CREATE TABLE embeddings (
+                doc_id VARCHAR NOT NULL,
+                chunk_id INTEGER DEFAULT nextval('chunk_id_seq'),
+                start_index INTEGER,
+                end_index INTEGER,
+                PRIMARY KEY (doc_id, start_index, end_index),
+                context VARCHAR
+            )
+            """
+        )
+        store.con.execute("INSERT INTO documents SELECT * FROM _legacy_documents")
+        store.con.execute("INSERT INTO embeddings SELECT * FROM _legacy_embeddings")
+        store.con.execute(
+            "INSERT INTO documents (doc_id, origin, text) VALUES ('doc_stale', 'doc-1', 'stale content')"
+        )
+        store.con.execute(
+            """
+            INSERT INTO embeddings (doc_id, start_index, end_index, context)
+            VALUES ('doc_stale', 0, 12, NULL)
+            """
+        )
+        store.con.execute("DROP TABLE _legacy_documents")
+        store.con.execute("DROP TABLE _legacy_embeddings")
+        store.con.execute(
+            """
+            CREATE OR REPLACE VIEW chunks AS (
+                SELECT
+                    d.origin as origin,
+                    e.*,
+                    d.text[e.start_index:e.end_index] as text
+                FROM documents d
+                JOIN embeddings e USING (doc_id)
+            )
+            """
+        )
+
+        replacement = MarkdownDocument(origin="doc-1", content="new content")
+        replacement.chunks = [
+            MarkdownChunk(
+                start_index=0,
+                end_index=len(replacement.content),
+                text=replacement.content,
+                token_count=len(replacement.content),
+            )
+        ]
+        result = store.insert(replacement, skip_if_unchanged=False)
+        assert result.action == "replaced"
+
+        origin_rows = store.con.execute(
+            "SELECT COUNT(*) FROM documents WHERE origin = 'doc-1'"
+        ).fetchone()
+        assert origin_rows is not None
+        assert origin_rows[0] == 1
+
+        stale_doc_rows = store.con.execute(
+            "SELECT COUNT(*) FROM documents WHERE doc_id = 'doc_stale'"
+        ).fetchone()
+        assert stale_doc_rows is not None
+        assert stale_doc_rows[0] == 0
+
+        stale_embedding_rows = store.con.execute(
+            "SELECT COUNT(*) FROM embeddings WHERE doc_id = 'doc_stale'"
+        ).fetchone()
+        assert stale_embedding_rows is not None
+        assert stale_embedding_rows[0] == 0
+
     @pytest.mark.parametrize("embed", [EmbeddingOpenAI()], indirect=True)
     def test_retrieve_vss(self, store_with_docs):
         results = store_with_docs.retrieve_vss("test", top_k=3)
