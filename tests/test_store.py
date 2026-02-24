@@ -1,5 +1,4 @@
 import os
-import socket
 import hashlib
 import json
 from types import SimpleNamespace
@@ -40,51 +39,16 @@ class CountingEmbedding(EmbeddingProvider):
         return cls()
 
 
-def _can_reach_openai(timeout: float = 2.0) -> bool:
-    try:
-        with socket.create_connection(("api.openai.com", 443), timeout=timeout):
-            return True
-    except OSError:
-        return False
+def _skip_if_unset(env_var: str) -> None:
+    if not os.getenv(env_var):
+        pytest.skip(f"{env_var} not set in environment variables")
 
 
-def _require_openai_integration() -> None:
-    if not os.getenv("OPENAI_API_KEY"):
-        pytest.skip("OPENAI_API_KEY not set in environment variables")
-    if not _can_reach_openai():
-        pytest.skip("OpenAI API is not reachable from this environment")
-
-
-def _run_openai_or_skip(fn, *args, **kwargs):
-    try:
-        return fn(*args, **kwargs)
-    except openai.AuthenticationError:
-        pytest.skip("OPENAI_API_KEY is invalid for OpenAI integration tests")
-    except openai.APIConnectionError:
-        pytest.skip("OpenAI API connection failed during integration test")
-
-
-def test_run_openai_or_skip_skips_on_auth_error():
-    def _raise_auth_error():
-        request = httpx.Request("GET", "https://api.openai.com/v1/models")
-        response = httpx.Response(401, request=request)
-        raise openai.AuthenticationError(
-            "Error code: 401",
-            response=response,
-            body=None,
-        )
+def test_skip_if_unset_skips_without_api_key(monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
 
     with pytest.raises(pytest.skip.Exception):
-        _run_openai_or_skip(_raise_auth_error)
-
-
-def test_run_openai_or_skip_skips_on_connection_error():
-    def _raise_connection_error():
-        request = httpx.Request("GET", "https://api.openai.com/v1/models")
-        raise openai.APIConnectionError(request=request)
-
-    with pytest.raises(pytest.skip.Exception):
-        _run_openai_or_skip(_raise_connection_error)
+        _skip_if_unset("OPENAI_API_KEY")
 
 
 class TestDuckDBStore:
@@ -93,7 +57,7 @@ class TestDuckDBStore:
         try:
             value = request.param
             if isinstance(value, EmbeddingOpenAI):
-                _require_openai_integration()
+                _skip_if_unset("OPENAI_API_KEY")
             return value
         except AttributeError:
             return None
@@ -1118,11 +1082,11 @@ class TestDuckDBStore:
 class TestOpenAIStore:
     @pytest.fixture(autouse=True)
     def setup(self):
-        _require_openai_integration()
+        _skip_if_unset("OPENAI_API_KEY")
 
     @pytest.fixture
     def store(self):
-        store = _run_openai_or_skip(OpenAIStore.create)
+        store = OpenAIStore.create()
         try:
             yield store
         finally:
@@ -1133,35 +1097,30 @@ class TestOpenAIStore:
 
     @pytest.fixture(scope="class")
     def store_with_attributes(self):
-        store = _run_openai_or_skip(
-            OpenAIStore.create, attributes={"tenant": str, "priority": int}
-        )
-        _run_openai_or_skip(
-            store.insert,
+        _skip_if_unset("OPENAI_API_KEY")
+        store = OpenAIStore.create(attributes={"tenant": str, "priority": int})
+        store.insert(
             MarkdownDocument(
                 origin="doc-attrs",
                 content="alpha bronze owl",
                 attributes={"tenant": "docs", "priority": 2},
             ),
         )
-        _run_openai_or_skip(
-            store.insert,
+        store.insert(
             MarkdownDocument(
                 origin="docs-priority-1",
                 content="alpha beta",
                 attributes={"tenant": "docs", "priority": 1},
             ),
         )
-        _run_openai_or_skip(
-            store.insert,
+        store.insert(
             MarkdownDocument(
                 origin="ops-priority-5",
                 content="alpha gamma",
                 attributes={"tenant": "ops", "priority": 5},
             ),
         )
-        _run_openai_or_skip(
-            store.insert,
+        store.insert(
             MarkdownDocument(
                 origin="docs-priority-3",
                 content="alpha alpha delta",
@@ -1182,7 +1141,8 @@ class TestOpenAIStore:
             tenant: str
             priority: int
 
-        store = _run_openai_or_skip(OpenAIStore.create, attributes=AttributesSpec)
+        _skip_if_unset("OPENAI_API_KEY")
+        store = OpenAIStore.create(attributes=AttributesSpec)
         try:
             yield store
         finally:
@@ -1196,7 +1156,7 @@ class TestOpenAIStore:
         doc = MarkdownDocument(
             origin="test", content="hello world this is a document world world world"
         )
-        _run_openai_or_skip(store.insert, doc)
+        store.insert(doc)
         return store
 
     def test_create_store(self, store):
@@ -1853,15 +1813,14 @@ def _get_markdown_chunk(doc, start, end):
 
 
 def test_ingest():
-    _require_openai_integration()
+    _skip_if_unset("OPENAI_API_KEY")
     from raghilda.chunker import MarkdownChunker
     from raghilda.read import read_as_markdown
 
     links = find_links("https://r4ds.hadley.nz/base-R.html", validate=True)
     links = links[:3]
 
-    store = _run_openai_or_skip(
-        DuckDBStore.create,
+    store = DuckDBStore.create(
         location=":memory:",
         embed=EmbeddingOpenAI(),
         overwrite=True,
@@ -1875,7 +1834,7 @@ def test_ingest():
     def prepare(uri: str):
         return chunker.chunk_document(read_as_markdown(uri))
 
-    _run_openai_or_skip(store.ingest, links, prepare=prepare)
+    store.ingest(links, prepare=prepare)
 
 
 def test_ingest_with_generator():
@@ -1993,12 +1952,11 @@ def test_ingest_lazy_evaluation():
 
 
 def test_connect(tmp_path):
-    _require_openai_integration()
+    _skip_if_unset("OPENAI_API_KEY")
     db_path = tmp_path / "test.db"
 
     # Create a store with embeddings
-    store = _run_openai_or_skip(
-        DuckDBStore.create,
+    store = DuckDBStore.create(
         location=str(db_path),
         embed=EmbeddingOpenAI(model="text-embedding-3-small"),
         name="connect_test",
@@ -2006,7 +1964,7 @@ def test_connect(tmp_path):
     )
     doc = MarkdownDocument(origin="test", content="hello world")
     doc.chunks = [_get_markdown_chunk(doc, start=0, end=5)]
-    _run_openai_or_skip(store.insert, doc)
+    store.insert(doc)
     store.build_index()
     store.con.close()
 
@@ -2022,6 +1980,6 @@ def test_connect(tmp_path):
     assert store2.metadata.embed.model == "text-embedding-3-small"
 
     # Retrieve should work (uses both BM25 and VSS)
-    results = _run_openai_or_skip(store2.retrieve, "hello", top_k=1)
+    results = store2.retrieve("hello", top_k=1)
     assert len(results) >= 1
     assert results[0].text == "hello"
