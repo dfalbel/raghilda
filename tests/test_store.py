@@ -261,10 +261,15 @@ class TestDuckDBStore:
             embed=embed,
             overwrite=True,
             name="insert_same_multi_chunk_skip",
+            attributes={"tenant": str},
         )
         calls_after_create = embed.calls
         content = "hello world"
-        doc = MarkdownDocument(origin="doc-1", content=content)
+        doc = MarkdownDocument(
+            origin="doc-1",
+            content=content,
+            attributes={"tenant": "docs"},
+        )
         doc.chunks = [
             MarkdownChunk(
                 start_index=0,
@@ -286,6 +291,7 @@ class TestDuckDBStore:
 
         second = store.insert(doc)
         assert second.action == "skipped"
+        assert second.document.attributes == {"tenant": "docs"}
         assert embed.calls == calls_after_create + 1
 
     def test_insert_requires_origin(self):
@@ -314,8 +320,13 @@ class TestDuckDBStore:
             embed=None,
             overwrite=True,
             name="insert_replace_snapshot",
+            attributes={"tenant": str},
         )
-        first = MarkdownDocument(origin="doc-1", content="hello world")
+        first = MarkdownDocument(
+            origin="doc-1",
+            content="hello world",
+            attributes={"tenant": "docs"},
+        )
         first.chunks = [
             MarkdownChunk(
                 start_index=0,
@@ -331,7 +342,11 @@ class TestDuckDBStore:
         assert inserted.document.content == "hello world"
         assert inserted.replaced_document is None
 
-        second = MarkdownDocument(origin="doc-1", content="goodbye world")
+        second = MarkdownDocument(
+            origin="doc-1",
+            content="goodbye world",
+            attributes={"tenant": "eng"},
+        )
         second.chunks = [
             MarkdownChunk(
                 start_index=0,
@@ -345,9 +360,11 @@ class TestDuckDBStore:
         assert updated.action == "replaced"
         assert updated.document.origin == "doc-1"
         assert updated.document.content == "goodbye world"
+        assert updated.document.attributes == {"tenant": "eng"}
         assert updated.replaced_document is not None
         assert updated.replaced_document.origin == "doc-1"
         assert updated.replaced_document.content == "hello world"
+        assert updated.replaced_document.attributes == {"tenant": "docs"}
         assert updated.replaced_document.chunks is not None
         assert len(updated.replaced_document.chunks) == 1
 

@@ -802,6 +802,7 @@ class DuckDBStore(BaseStore):
         columns = [desc[0] for desc in result.description]
 
         chunks: list[Chunk] = []
+        document_attributes: dict[str, Any] = {}
         for row in rows:
             row_dict = dict(zip(columns, row))
             attributes = {
@@ -809,6 +810,9 @@ class DuckDBStore(BaseStore):
                 for key in attribute_columns
                 if key in row_dict and row_dict[key] is not None
             }
+            for key, value in attributes.items():
+                if key not in document_attributes:
+                    document_attributes[key] = value
             start_index = int(row_dict["start_index"])
             end_index = int(row_dict["end_index"])
             chunk_text = text[start_index:end_index]
@@ -828,6 +832,7 @@ class DuckDBStore(BaseStore):
             origin=origin,
             content=text,
             chunks=chunks,
+            attributes=document_attributes or None,
         )
 
     def retrieve(
