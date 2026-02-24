@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from contextlib import contextmanager
 import hashlib
 import importlib
 import json
@@ -492,6 +493,7 @@ class ChromaDBStore(BaseStore):
         self.collection = collection
         self.metadata = metadata
         self._origin_locks: dict[str, threading.Lock] = {}
+        self._origin_lock_ref_counts: dict[str, int] = {}
         self._origin_locks_guard = threading.Lock()
 
     def insert(
@@ -509,7 +511,7 @@ class ChromaDBStore(BaseStore):
         if not document.origin:
             raise ValueError("document.origin is required for insert().")
 
-        with self._get_origin_lock(document.origin):
+        with self._origin_lock(document.origin):
             content_hash = hashlib.sha256(document.content.encode("utf-8")).hexdigest()
 
             existing = self.collection.get(
@@ -595,13 +597,29 @@ class ChromaDBStore(BaseStore):
                 replaced_document=replaced_document,
             )
 
-    def _get_origin_lock(self, origin: str) -> threading.Lock:
+    @contextmanager
+    def _origin_lock(self, origin: str):
         with self._origin_locks_guard:
             lock = self._origin_locks.get(origin)
             if lock is None:
                 lock = threading.Lock()
                 self._origin_locks[origin] = lock
-            return lock
+            self._origin_lock_ref_counts[origin] = (
+                self._origin_lock_ref_counts.get(origin, 0) + 1
+            )
+
+        try:
+            with lock:
+                yield
+        finally:
+            with self._origin_locks_guard:
+                remaining = self._origin_lock_ref_counts.get(origin, 1) - 1
+                if remaining <= 0:
+                    self._origin_lock_ref_counts.pop(origin, None)
+                    if self._origin_locks.get(origin) is lock:
+                        self._origin_locks.pop(origin, None)
+                else:
+                    self._origin_lock_ref_counts[origin] = remaining
 
     def ingest(
         self,

@@ -302,6 +302,30 @@ def test_insert_same_origin_concurrent_updates_do_not_leave_stale_chunks(monkeyp
     assert existing["documents"] == [content]
 
 
+def test_insert_releases_origin_locks_for_completed_origins():
+    store = ChromaDBStore.create(
+        location=":memory:",
+        embed=DummyEmbeddingFunction(),
+        name="test_store_origin_lock_cleanup",
+        overwrite=True,
+    )
+
+    for idx in range(100):
+        content = f"doc {idx}"
+        doc = MarkdownDocument(origin=f"origin-{idx}", content=content)
+        doc.chunks = [
+            MarkdownChunk(
+                start_index=0,
+                end_index=len(content),
+                text=content,
+                token_count=len(content),
+            )
+        ]
+        store.insert(doc, skip_if_unchanged=False)
+
+    assert store._origin_locks == {}
+
+
 def test_insert_stores_document_content_once_in_metadata():
     store = ChromaDBStore.create(
         location=":memory:",
