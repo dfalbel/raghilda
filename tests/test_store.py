@@ -1444,6 +1444,22 @@ def test_openai_store_create_rejects_invalid_attribute_names():
         OpenAIStore.create(attributes={"tenant-id": str})
 
 
+def test_openai_store_create_rejects_more_than_14_user_attributes(monkeypatch):
+    class FakeVectorStores:
+        def create(self, **kwargs):
+            raise AssertionError("create should not be called for invalid schema")
+
+    fake_client = SimpleNamespace(vector_stores=FakeVectorStores())
+
+    def fake_openai_client(*, api_key=None, base_url=None):
+        return fake_client
+
+    monkeypatch.setattr("raghilda._openai_store.openai.Client", fake_openai_client)
+
+    with pytest.raises(ValueError, match="at most 14 user attributes"):
+        OpenAIStore.create(attributes={f"k{i}": str for i in range(15)})
+
+
 @pytest.mark.parametrize(
     "attribute_name",
     ["_raghilda_origin", "_raghilda_content_hash"],
@@ -1544,20 +1560,11 @@ def test_openai_store_insert_rejects_too_many_user_attributes():
         files=SimpleNamespace(content=lambda file_id: None),
     )
     attributes_schema = {f"k{i}": str for i in range(15)}
-    store = OpenAIStore(
-        client=fake_client,
-        store_id="vs_test",
-        attributes=attributes_schema,
-    )
-    document_attributes = {f"k{i}": f"v{i}" for i in range(15)}
-
     with pytest.raises(ValueError, match="at most 14 user attributes"):
-        store.insert(
-            MarkdownDocument(
-                origin="doc",
-                content="hello world",
-                attributes=document_attributes,
-            )
+        OpenAIStore(
+            client=fake_client,
+            store_id="vs_test",
+            attributes=attributes_schema,
         )
     assert fake_vector_store_files.upload_calls == []
 

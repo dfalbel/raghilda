@@ -32,6 +32,18 @@ _OPENAI_INTERNAL_ATTRIBUTE_COUNT = 2
 logger = logging.getLogger(__name__)
 
 
+def _ensure_openai_user_attribute_limit(user_attribute_count: int) -> None:
+    if (
+        user_attribute_count + _OPENAI_INTERNAL_ATTRIBUTE_COUNT
+        > _OPENAI_MAX_FILE_ATTRIBUTES
+    ):
+        raise ValueError(
+            "OpenAI vector store files support at most 16 total attributes; "
+            f"received {user_attribute_count} user attributes plus "
+            "2 internal attributes. Use at most 14 user attributes."
+        )
+
+
 @dataclass(repr=False)
 class OpenAIMarkdownChunk(MarkdownChunk):
     """MarkdownChunk for OpenAI store - uses character count as token count"""
@@ -165,6 +177,7 @@ class OpenAIStore(BaseStore):
         attributes_schema = {
             key: spec.attribute_type for key, spec in attributes_spec.items()
         }
+        _ensure_openai_user_attribute_limit(len(attributes_spec))
 
         client = openai.Client(api_key=api_key, base_url=base_url)
         api_vector_store_metadata = dict(metadata or {})
@@ -259,6 +272,7 @@ class OpenAIStore(BaseStore):
             resolved_schema = {
                 key: spec.attribute_type for key, spec in resolved_spec.items()
             }
+        _ensure_openai_user_attribute_limit(len(resolved_spec))
 
         self.attributes_spec = resolved_spec
         self.attributes_schema = resolved_schema
@@ -288,15 +302,7 @@ class OpenAIStore(BaseStore):
             sources=[document.attributes],
         )
         user_file_attributes = _normalize_openai_attributes(resolved_attributes)
-        if (
-            len(user_file_attributes) + _OPENAI_INTERNAL_ATTRIBUTE_COUNT
-            > _OPENAI_MAX_FILE_ATTRIBUTES
-        ):
-            raise ValueError(
-                "OpenAI vector store files support at most 16 total attributes; "
-                f"received {len(user_file_attributes)} user attributes plus "
-                "2 internal attributes. Use at most 14 user attributes."
-            )
+        _ensure_openai_user_attribute_limit(len(user_file_attributes))
 
         content_hash = hashlib.sha256(document.content.encode("utf-8")).hexdigest()
         existing_files = [
