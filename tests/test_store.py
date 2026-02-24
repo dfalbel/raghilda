@@ -1066,6 +1066,59 @@ class TestDuckDBStore:
             "topic": None,
         }
 
+    def test_insert_result_document_preserves_defaulted_attributes(self):
+        store = DuckDBStore.create(
+            location=":memory:",
+            embed=None,
+            overwrite=True,
+            attributes={
+                "tenant": str,
+                "priority": (int, 0),
+            },
+        )
+
+        doc = MarkdownDocument(
+            origin="defaults-in-result",
+            content="alpha",
+            attributes={"tenant": "docs"},
+        )
+        doc.chunks = [
+            MarkdownChunk(
+                start_index=0,
+                end_index=5,
+                text="alpha",
+                token_count=5,
+            )
+        ]
+
+        inserted = store.insert(doc)
+        assert inserted.action == "inserted"
+        assert inserted.document.attributes == {
+            "tenant": "docs",
+            "priority": 0,
+        }
+
+        updated = MarkdownDocument(
+            origin="defaults-in-result",
+            content="alpha beta",
+            attributes={"tenant": "docs"},
+        )
+        updated.chunks = [
+            MarkdownChunk(
+                start_index=0,
+                end_index=10,
+                text="alpha beta",
+                token_count=10,
+            )
+        ]
+
+        replaced = store.insert(updated, skip_if_unchanged=False)
+        assert replaced.action == "replaced"
+        assert replaced.document.attributes == {
+            "tenant": "docs",
+            "priority": 0,
+        }
+
     def test_insert_missing_required_attribute_fails(self):
         store = DuckDBStore.create(
             location=":memory:",

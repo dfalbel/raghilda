@@ -519,12 +519,10 @@ class DuckDBStore(BaseStore):
                     pass
                 raise
 
-        current_document = MarkdownDocument(
-            id=result_doc_id,
+        current_document = self._load_document_snapshot(
+            doc_id=result_doc_id,
             origin=document.origin,
-            content=document.content,
-            chunks=document.chunks,
-            attributes=document.attributes,
+            text=document.content,
         )
         return InsertResult(
             action=action,
