@@ -39,6 +39,17 @@ class CountingEmbedding(EmbeddingProvider):
         return cls()
 
 
+class _SinglePage:
+    def __init__(self, data):
+        self.data = data
+
+    def has_next_page(self):
+        return False
+
+    def get_next_page(self):
+        raise AssertionError("No next page expected")
+
+
 def _skip_if_unset(env_var: str) -> None:
     if not os.getenv(env_var):
         pytest.skip(f"{env_var} not set in environment variables")
@@ -1433,21 +1444,11 @@ def test_openai_store_insert_updates_when_attributes_change_for_same_content():
     content = "hello world"
     content_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
 
-    class FakePage:
-        def __init__(self, data):
-            self.data = data
-
-        def has_next_page(self):
-            return False
-
-        def get_next_page(self):
-            raise AssertionError("No next page expected")
-
     class FakeVectorStoreFiles:
         def __init__(self):
             self.deleted_ids = []
             self.upload_calls = []
-            self.page = FakePage(
+            self.page = _SinglePage(
                 [
                     SimpleNamespace(
                         id="file_old",
@@ -1505,20 +1506,10 @@ def test_openai_store_insert_updates_when_attributes_change_for_same_content():
 
 
 def test_openai_store_insert_rejects_too_many_user_attributes():
-    class FakePage:
-        def __init__(self, data):
-            self.data = data
-
-        def has_next_page(self):
-            return False
-
-        def get_next_page(self):
-            raise AssertionError("No next page expected")
-
     class FakeVectorStoreFiles:
         def __init__(self):
             self.upload_calls = []
-            self.page = FakePage([])
+            self.page = _SinglePage([])
 
         def list(self, **kwargs):
             return self.page
@@ -1557,21 +1548,11 @@ def test_openai_store_insert_rejects_too_many_user_attributes():
 def test_openai_store_insert_ignores_matching_filename_without_internal_origin():
     content = "hello world"
 
-    class FakePage:
-        def __init__(self, data):
-            self.data = data
-
-        def has_next_page(self):
-            return False
-
-        def get_next_page(self):
-            raise AssertionError("No next page expected")
-
     class FakeVectorStoreFiles:
         def __init__(self):
             self.deleted_ids = []
             self.upload_calls = []
-            self.page = FakePage(
+            self.page = _SinglePage(
                 [
                     SimpleNamespace(
                         id="file_existing",
@@ -1623,21 +1604,11 @@ def test_openai_store_insert_ignores_matching_filename_without_internal_origin()
 def test_openai_store_insert_ignores_unmanaged_matching_filename():
     content = "hello world"
 
-    class FakePage:
-        def __init__(self, data):
-            self.data = data
-
-        def has_next_page(self):
-            return False
-
-        def get_next_page(self):
-            raise AssertionError("No next page expected")
-
     class FakeVectorStoreFiles:
         def __init__(self):
             self.deleted_ids = []
             self.upload_calls = []
-            self.page = FakePage(
+            self.page = _SinglePage(
                 [
                     SimpleNamespace(
                         id="file_unmanaged",
@@ -1688,20 +1659,10 @@ def test_openai_store_insert_keeps_existing_file_when_upload_fails():
     content = "hello world"
     content_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
 
-    class FakePage:
-        def __init__(self, data):
-            self.data = data
-
-        def has_next_page(self):
-            return False
-
-        def get_next_page(self):
-            raise AssertionError("No next page expected")
-
     class FakeVectorStoreFiles:
         def __init__(self):
             self.deleted_ids = []
-            self.page = FakePage(
+            self.page = _SinglePage(
                 [
                     SimpleNamespace(
                         id="file_old",
@@ -1832,21 +1793,11 @@ def test_openai_store_insert_updates_when_snapshot_download_forbidden():
     new_content = "hello world updated"
     old_hash = hashlib.sha256(old_content.encode("utf-8")).hexdigest()
 
-    class FakePage:
-        def __init__(self, data):
-            self.data = data
-
-        def has_next_page(self):
-            return False
-
-        def get_next_page(self):
-            raise AssertionError("No next page expected")
-
     class FakeVectorStoreFiles:
         def __init__(self):
             self.deleted_ids = []
             self.upload_calls = []
-            self.page = FakePage(
+            self.page = _SinglePage(
                 [
                     SimpleNamespace(
                         id="file_old",
@@ -1913,21 +1864,11 @@ def test_openai_store_insert_updates_when_snapshot_download_connection_error():
     new_content = "hello world updated"
     old_hash = hashlib.sha256("hello world".encode("utf-8")).hexdigest()
 
-    class FakePage:
-        def __init__(self, data):
-            self.data = data
-
-        def has_next_page(self):
-            return False
-
-        def get_next_page(self):
-            raise AssertionError("No next page expected")
-
     class FakeVectorStoreFiles:
         def __init__(self):
             self.deleted_ids = []
             self.upload_calls = []
-            self.page = FakePage(
+            self.page = _SinglePage(
                 [
                     SimpleNamespace(
                         id="file_old",
