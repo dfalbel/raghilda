@@ -1,6 +1,7 @@
 import openai
 import json
 import hashlib
+import logging
 from ._store import BaseStore, InsertResult
 from .chunk import MarkdownChunk, RetrievedChunk, Metric
 from .document import Document, MarkdownDocument
@@ -28,6 +29,7 @@ _RESERVED_INTERNAL_ATTRIBUTE_KEYS = {
 }
 _OPENAI_MAX_FILE_ATTRIBUTES = 16
 _OPENAI_INTERNAL_ATTRIBUTE_COUNT = 2
+logger = logging.getLogger(__name__)
 
 
 @dataclass(repr=False)
@@ -357,10 +359,19 @@ class OpenAIStore(BaseStore):
                 vector_store_id=self.store_id,
             )
         for vector_store_file in existing_files:
-            self.client.vector_stores.files.delete(
-                file_id=vector_store_file.id,
-                vector_store_id=self.store_id,
-            )
+            try:
+                self.client.vector_stores.files.delete(
+                    file_id=vector_store_file.id,
+                    vector_store_id=self.store_id,
+                )
+            except openai.APIError as error:
+                logger.warning(
+                    "Failed to delete stale OpenAI file %s for origin %s in store %s: %s",
+                    getattr(vector_store_file, "id", "<unknown>"),
+                    document.origin,
+                    self.store_id,
+                    error,
+                )
         current_document = MarkdownDocument(
             id=document.id,
             origin=document.origin,

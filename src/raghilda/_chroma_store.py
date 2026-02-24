@@ -5,6 +5,7 @@ from contextlib import contextmanager
 import hashlib
 import importlib
 import json
+import logging
 from pathlib import Path
 import threading
 from collections.abc import Sized
@@ -80,6 +81,7 @@ _FILTERABLE_BASE_COLUMNS = {
     "context",
     "origin",
 }
+logger = logging.getLogger(__name__)
 
 
 def _ensure_no_reserved_attributes(
@@ -583,7 +585,14 @@ class ChromaDBStore(BaseStore):
                 existing_id for existing_id in existing_ids if existing_id not in ids
             ]
             if stale_ids:
-                self.collection.delete(ids=stale_ids)
+                try:
+                    self.collection.delete(ids=stale_ids)
+                except Exception as error:
+                    logger.warning(
+                        "Failed to delete stale Chroma chunk ids for origin %s: %s",
+                        document.origin,
+                        error,
+                    )
             current_document = MarkdownDocument(
                 id=document.id,
                 origin=document.origin,

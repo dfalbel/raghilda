@@ -265,6 +265,56 @@ def test_insert_keeps_existing_chunks_when_upsert_fails(monkeypatch):
     assert existing["documents"] == ["hello world"]
 
 
+def test_insert_succeeds_when_stale_chunk_delete_fails(monkeypatch):
+    store = ChromaDBStore.create(
+        location=":memory:",
+        embed=DummyEmbeddingFunction(),
+        name="test_store_stale_delete_failure",
+        overwrite=True,
+    )
+
+    content = "hello world"
+    original = MarkdownDocument(origin="same-origin", content=content)
+    original.chunks = [
+        MarkdownChunk(
+            start_index=0,
+            end_index=5,
+            text=content[:5],
+            token_count=5,
+        ),
+        MarkdownChunk(
+            start_index=6,
+            end_index=len(content),
+            text=content[6:],
+            token_count=len(content[6:]),
+        ),
+    ]
+    store.insert(original)
+
+    delete_calls = []
+
+    def fail_delete(**kwargs):
+        delete_calls.append(kwargs)
+        raise RuntimeError("delete failed")
+
+    monkeypatch.setattr(store.collection, "delete", fail_delete)
+
+    updated = MarkdownDocument(origin="same-origin", content=content)
+    updated.chunks = [
+        MarkdownChunk(
+            start_index=0,
+            end_index=len(content),
+            text=content,
+            token_count=len(content),
+        )
+    ]
+
+    result = store.insert(updated, skip_if_unchanged=False)
+    assert result.action == "replaced"
+    assert len(delete_calls) == 1
+    assert delete_calls[0]["ids"] == ["same-origin:1"]
+
+
 def test_insert_raises_when_existing_metadata_missing_doc_id(monkeypatch):
     store = ChromaDBStore.create(
         location=":memory:",

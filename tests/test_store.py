@@ -1731,6 +1731,75 @@ def test_openai_store_insert_keeps_existing_file_when_upload_fails():
     assert fake_vector_store_files.deleted_ids == []
 
 
+def test_openai_store_insert_succeeds_when_old_file_delete_fails():
+    old_content = "hello world"
+    new_content = "hello world updated"
+    old_hash = hashlib.sha256(old_content.encode("utf-8")).hexdigest()
+
+    class FakeVectorStoreFiles:
+        def __init__(self):
+            self.deleted_ids = []
+            self.upload_calls = []
+            self.page = _SinglePage(
+                [
+                    SimpleNamespace(
+                        id="file_old",
+                        created_at=1,
+                        filename="doc.md",
+                        attributes={
+                            "_raghilda_origin": "doc",
+                            "_raghilda_content_hash": old_hash,
+                            "tenant": "old",
+                        },
+                    )
+                ]
+            )
+
+        def list(self, **kwargs):
+            return self.page
+
+        def delete(self, file_id, **kwargs):
+            self.deleted_ids.append(file_id)
+            request = httpx.Request(
+                "DELETE",
+                f"https://api.openai.com/v1/vector_stores/{kwargs.get('vector_store_id')}/files/{file_id}",
+            )
+            raise openai.APIConnectionError(request=request)
+
+        def upload_and_poll(self, **kwargs):
+            self.upload_calls.append(kwargs)
+            return SimpleNamespace(id="file_new")
+
+    class FakeFiles:
+        def content(self, file_id):
+            assert file_id == "file_old"
+            return SimpleNamespace(content=old_content.encode("utf-8"))
+
+    fake_vector_store_files = FakeVectorStoreFiles()
+    fake_client = SimpleNamespace(
+        vector_stores=SimpleNamespace(files=fake_vector_store_files),
+        files=FakeFiles(),
+    )
+    store = OpenAIStore(
+        client=fake_client,
+        store_id="vs_test",
+        attributes={"tenant": str},
+    )
+
+    result = store.insert(
+        MarkdownDocument(
+            origin="doc",
+            content=new_content,
+            attributes={"tenant": "new"},
+        )
+    )
+    assert result.action == "replaced"
+    assert result.replaced_document is not None
+    assert result.replaced_document.content == old_content
+    assert fake_vector_store_files.deleted_ids == ["file_old"]
+    assert len(fake_vector_store_files.upload_calls) == 1
+
+
 def test_openai_store_connect_restores_metadata_schema_with_mocked_client(
     monkeypatch,
 ):
