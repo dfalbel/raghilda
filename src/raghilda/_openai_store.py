@@ -227,6 +227,10 @@ class OpenAIStore(BaseStore):
                 allow_struct_types=False,
                 allow_optional_values=False,
             )
+        _ensure_no_reserved_attributes(
+            resolved_attributes_spec,
+            _RESERVED_INTERNAL_ATTRIBUTE_KEYS,
+        )
         resolved_attributes_schema = {
             key: spec.attribute_type for key, spec in resolved_attributes_spec.items()
         }
@@ -558,3 +562,12 @@ def _normalize_openai_attributes(
                 f"Unsupported OpenAI attribute type for '{key}': {type(value).__name__}"
             )
     return out
+
+
+def _ensure_no_reserved_attributes(
+    attributes_spec: Mapping[str, AttributeSpec],
+    reserved_keys: set[str],
+) -> None:
+    for key in attributes_spec:
+        if key in reserved_keys:
+            raise ValueError(f"Attribute column '{key}' is reserved")

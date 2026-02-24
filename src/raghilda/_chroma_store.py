@@ -81,6 +81,15 @@ _FILTERABLE_BASE_COLUMNS = {
 }
 
 
+def _ensure_no_reserved_attributes(
+    attributes_spec: dict[str, AttributeSpec],
+    reserved_keys: set[str],
+) -> None:
+    for key in attributes_spec:
+        if key in reserved_keys:
+            raise ValueError(f"Attribute column '{key}' is reserved")
+
+
 # ChromaEmbeddingAdapter is only defined when chromadb is installed
 try:
     from chromadb import EmbeddingFunction as _EmbeddingFunctionBase
@@ -467,6 +476,7 @@ class ChromaDBStore(BaseStore):
                 allow_struct_types=False,
                 allow_optional_values=False,
             )
+        _ensure_no_reserved_attributes(attributes_spec, _RESERVED_SYSTEM_COLUMNS)
         return ChromaDBStore(
             client=client,
             collection=collection,

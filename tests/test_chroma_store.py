@@ -2,6 +2,7 @@ import pytest
 import socket
 import threading
 import time
+import json
 from typing import Annotated
 
 pytest.importorskip("chromadb")
@@ -385,6 +386,32 @@ def test_connect_restores_attributes_schema(tmp_path):
         embed=DummyEmbeddingFunction(),
     )
     assert store2.metadata.attributes_schema == {"tenant": str, "priority": int}
+
+
+def test_connect_rejects_internal_attribute_names_from_metadata():
+    schema_json = json.dumps(
+        {
+            "_raghilda_content_hash": {
+                "type": "str",
+                "nullable": False,
+                "required": True,
+            },
+        }
+    )
+
+    class FakeCollection:
+        metadata = {"raghilda_attributes_schema_json": schema_json}
+
+    class FakeClient:
+        def get_collection(self, *, name, embedding_function=None):
+            return FakeCollection()
+
+    with pytest.raises(ValueError, match="_raghilda_content_hash"):
+        ChromaDBStore.connect(
+            name="connect_internal_attr_test",
+            client=FakeClient(),
+            embed=DummyEmbeddingFunction(),
+        )
 
 
 def _make_doc_with_overlapping_chunks():

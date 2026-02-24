@@ -1722,6 +1722,33 @@ def test_openai_store_connect_restores_metadata_schema_with_mocked_client(
     assert store.attributes_schema == {"tenant": str, "priority": int}
 
 
+def test_openai_store_connect_rejects_internal_attribute_names_from_metadata(
+    monkeypatch,
+):
+    schema_json = json.dumps(
+        {
+            "_raghilda_origin": {"type": "str", "nullable": False, "required": True},
+        }
+    )
+
+    class FakeVectorStores:
+        def retrieve(self, *, vector_store_id):
+            return SimpleNamespace(
+                id=vector_store_id,
+                metadata={"raghilda_attributes_schema_json": schema_json},
+            )
+
+    fake_client = SimpleNamespace(vector_stores=FakeVectorStores())
+
+    def fake_openai_client(*, api_key=None, base_url=None):
+        return fake_client
+
+    monkeypatch.setattr("raghilda._openai_store.openai.Client", fake_openai_client)
+
+    with pytest.raises(ValueError, match="_raghilda_origin"):
+        OpenAIStore.connect(store_id="vs_test")
+
+
 def test_openai_store_insert_updates_when_snapshot_download_forbidden():
     old_content = "hello world"
     new_content = "hello world updated"
