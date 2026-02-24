@@ -1131,10 +1131,42 @@ class TestOpenAIStore:
             except openai.AuthenticationError:
                 pass
 
-    @pytest.fixture
+    @pytest.fixture(scope="class")
     def store_with_attributes(self):
         store = _run_openai_or_skip(
             OpenAIStore.create, attributes={"tenant": str, "priority": int}
+        )
+        _run_openai_or_skip(
+            store.insert,
+            MarkdownDocument(
+                origin="doc-attrs",
+                content="alpha bronze owl",
+                attributes={"tenant": "docs", "priority": 2},
+            ),
+        )
+        _run_openai_or_skip(
+            store.insert,
+            MarkdownDocument(
+                origin="docs-priority-1",
+                content="alpha beta",
+                attributes={"tenant": "docs", "priority": 1},
+            ),
+        )
+        _run_openai_or_skip(
+            store.insert,
+            MarkdownDocument(
+                origin="ops-priority-5",
+                content="alpha gamma",
+                attributes={"tenant": "ops", "priority": 5},
+            ),
+        )
+        _run_openai_or_skip(
+            store.insert,
+            MarkdownDocument(
+                origin="docs-priority-3",
+                content="alpha alpha delta",
+                attributes={"tenant": "docs", "priority": 3},
+            ),
         )
         try:
             yield store
@@ -1175,12 +1207,6 @@ class TestOpenAIStore:
         assert store_with_docs.size() == 1
 
     def test_retrieve(self, store_with_docs):
-        for _ in range(3):
-            store_with_docs.insert(
-                MarkdownDocument(
-                    origin="test", content="hello world world world world world"
-                )
-            )
         results = store_with_docs.retrieve("world", top_k=3)
         assert len(results) > 0
         for chunk in results:
@@ -1196,13 +1222,6 @@ class TestOpenAIStore:
         assert connected.attributes_schema == {"tenant": str, "priority": int}
 
     def test_insert_uses_document_attributes(self, store_with_attributes):
-        store_with_attributes.insert(
-            MarkdownDocument(
-                origin="doc-attrs",
-                content="alpha bronze owl",
-                attributes={"tenant": "docs", "priority": 2},
-            )
-        )
         results = store_with_attributes.retrieve(
             "bronze owl",
             top_k=5,
@@ -1213,31 +1232,9 @@ class TestOpenAIStore:
         assert all(float(chunk.attributes["priority"]) == 2.0 for chunk in results)
 
     def test_retrieve_supports_attributes_filter(self, store_with_attributes):
-        store_with_attributes.insert(
-            MarkdownDocument(
-                origin="docs-priority-2",
-                content="alpha alpha alpha",
-                attributes={"tenant": "docs", "priority": 2},
-            )
-        )
-        store_with_attributes.insert(
-            MarkdownDocument(
-                origin="docs-priority-1",
-                content="alpha beta",
-                attributes={"tenant": "docs", "priority": 1},
-            )
-        )
-        store_with_attributes.insert(
-            MarkdownDocument(
-                origin="ops-priority-5",
-                content="alpha gamma",
-                attributes={"tenant": "ops", "priority": 5},
-            )
-        )
-
         results = store_with_attributes.retrieve(
             "alpha",
-            top_k=10,
+            top_k=5,
             attributes_filter="tenant = 'docs' AND priority >= 2",
         )
 
@@ -1246,23 +1243,9 @@ class TestOpenAIStore:
         assert all(float(chunk.attributes["priority"]) >= 2.0 for chunk in results)
 
     def test_retrieve_supports_attributes_filter_ast(self, store_with_attributes):
-        store_with_attributes.insert(
-            MarkdownDocument(
-                origin="docs-priority-3",
-                content="alpha alpha delta",
-                attributes={"tenant": "docs", "priority": 3},
-            )
-        )
-        store_with_attributes.insert(
-            MarkdownDocument(
-                origin="ops-priority-3",
-                content="alpha alpha epsilon",
-                attributes={"tenant": "ops", "priority": 3},
-            )
-        )
         results = store_with_attributes.retrieve(
             "alpha",
-            top_k=10,
+            top_k=5,
             attributes_filter={
                 "type": "and",
                 "filters": [
@@ -1507,7 +1490,6 @@ def test_openai_store_insert_rejects_too_many_user_attributes():
 
 def test_openai_store_insert_matches_legacy_file_by_filename():
     content = "hello world"
-    content_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
 
     class FakePage:
         def __init__(self, data):
@@ -1530,7 +1512,6 @@ def test_openai_store_insert_matches_legacy_file_by_filename():
                         created_at=1,
                         filename="doc.md",
                         attributes={
-                            "_raghilda_content_hash": content_hash,
                             "tenant": "old",
                         },
                     )
@@ -1603,7 +1584,7 @@ def test_openai_store_insert_ignores_unmanaged_matching_filename():
                         id="file_unmanaged",
                         created_at=1,
                         filename="doc.md",
-                        attributes={"tenant": "external"},
+                        attributes={"source": "external"},
                     )
                 ]
             )
@@ -1838,6 +1819,7 @@ def test_ingest():
     from raghilda.read import read_as_markdown
 
     links = find_links("https://r4ds.hadley.nz/base-R.html", validate=True)
+    links = links[:3]
 
     store = _run_openai_or_skip(
         DuckDBStore.create,

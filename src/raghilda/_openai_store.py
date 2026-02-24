@@ -518,12 +518,17 @@ class OpenAIStore(BaseStore):
         managed_origin = attributes.get(_INTERNAL_ORIGIN_ATTRIBUTE_KEY)
         if managed_origin:
             return str(managed_origin) == origin
-        # Legacy fallback: accept filename match only for files that have
-        # raghilda-managed internal metadata.
-        if attributes.get(_INTERNAL_CONTENT_HASH_ATTRIBUTE_KEY) is None:
-            return False
         filename = getattr(vector_store_file, "filename", None) or ""
-        return self._origin_from_filename(filename) == origin
+        if self._origin_from_filename(filename) != origin:
+            return False
+        # Legacy fallback: pre-upgrade files may not have internal metadata.
+        # Accept filename matches for files that look like legacy raghilda
+        # records (no attributes, or attributes restricted to declared schema).
+        if attributes.get(_INTERNAL_CONTENT_HASH_ATTRIBUTE_KEY) is not None:
+            return True
+        if not attributes:
+            return True
+        return all(key in self.attributes_schema for key in attributes)
 
     def _origin_from_filename(self, filename: str) -> Optional[str]:
         if not filename:
