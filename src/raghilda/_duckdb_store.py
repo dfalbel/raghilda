@@ -804,12 +804,10 @@ class DuckDBStore(BaseStore):
         for row in rows:
             row_dict = dict(zip(columns, row))
             attributes = {
-                key: row_dict[key]
-                for key in attribute_columns
-                if key in row_dict and row_dict[key] is not None
+                key: row_dict[key] for key in attribute_columns if key in row_dict
             }
             for key, value in attributes.items():
-                if key not in document_attributes:
+                if key not in document_attributes or document_attributes[key] is None:
                     document_attributes[key] = value
             start_index = int(row_dict["start_index"])
             end_index = int(row_dict["end_index"])

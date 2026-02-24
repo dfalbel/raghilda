@@ -1169,6 +1169,67 @@ class TestDuckDBStore:
         assert observed_lock_states
         assert all(observed_lock_states)
 
+    def test_insert_snapshot_preserves_nullable_none_attributes(self):
+        store = DuckDBStore.create(
+            location=":memory:",
+            embed=None,
+            overwrite=True,
+            attributes={
+                "tenant": str,
+                "topic": (str | None, "general"),
+            },
+        )
+
+        first = MarkdownDocument(
+            origin="nullable-snapshot-test",
+            content="alpha",
+            attributes={"tenant": "docs", "topic": None},
+        )
+        first.chunks = [
+            MarkdownChunk(
+                start_index=0,
+                end_index=5,
+                text="alpha",
+                token_count=5,
+            )
+        ]
+
+        inserted = store.insert(first)
+        assert inserted.action == "inserted"
+        assert inserted.document.attributes == {
+            "tenant": "docs",
+            "topic": None,
+        }
+
+        second = MarkdownDocument(
+            origin="nullable-snapshot-test",
+            content="alpha beta",
+            attributes={"tenant": "docs", "topic": "updated"},
+        )
+        second.chunks = [
+            MarkdownChunk(
+                start_index=0,
+                end_index=10,
+                text="alpha beta",
+                token_count=10,
+            )
+        ]
+
+        replaced = store.insert(second, skip_if_unchanged=False)
+        assert replaced.action == "replaced"
+        assert replaced.replaced_document is not None
+        assert replaced.replaced_document.attributes == {
+            "tenant": "docs",
+            "topic": None,
+        }
+
+        restored = store.insert(replaced.replaced_document, skip_if_unchanged=False)
+        assert restored.action == "replaced"
+        assert restored.document.attributes == {
+            "tenant": "docs",
+            "topic": None,
+        }
+
     def test_insert_missing_required_attribute_fails(self):
         store = DuckDBStore.create(
             location=":memory:",
