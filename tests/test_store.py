@@ -1416,6 +1416,76 @@ class TestDuckDBStore:
             "priority": int,
         }
 
+    def test_connect_migrates_legacy_embeddings_without_chunk_text(self, tmp_path):
+        db_path = tmp_path / "legacy-without-chunk-text.db"
+        store = DuckDBStore.create(
+            location=str(db_path),
+            embed=None,
+            overwrite=True,
+            name="legacy_connect_test",
+        )
+        doc = MarkdownDocument(origin="legacy-doc", content="hello world")
+        doc.chunks = [
+            MarkdownChunk(
+                start_index=0,
+                end_index=len(doc.content),
+                text=doc.content,
+                token_count=len(doc.content),
+            )
+        ]
+        store.insert(doc)
+
+        # Simulate a pre-migration schema that lacked embeddings.chunk_text.
+        store.con.execute(
+            "CREATE TABLE _legacy_embeddings AS SELECT doc_id, chunk_id, start_index, end_index, context FROM embeddings"
+        )
+        store.con.execute("DROP VIEW chunks")
+        store.con.execute("DROP TABLE embeddings")
+        store.con.execute(
+            """
+            CREATE TABLE embeddings (
+                doc_id VARCHAR NOT NULL,
+                chunk_id INTEGER DEFAULT nextval('chunk_id_seq'),
+                start_index INTEGER,
+                end_index INTEGER,
+                PRIMARY KEY (doc_id, start_index, end_index),
+                context VARCHAR
+            )
+            """
+        )
+        store.con.execute("INSERT INTO embeddings SELECT * FROM _legacy_embeddings")
+        store.con.execute("DROP TABLE _legacy_embeddings")
+        store.con.execute(
+            """
+            CREATE OR REPLACE VIEW chunks AS (
+                SELECT
+                    d.origin as origin,
+                    e.*,
+                    d.text[e.start_index:e.end_index] as text
+                FROM documents d
+                JOIN embeddings e USING (doc_id)
+            )
+            """
+        )
+        store.con.close()
+
+        reconnected = DuckDBStore.connect(str(db_path))
+        columns = reconnected.con.execute("PRAGMA table_info('embeddings')").fetchall()
+        column_names = {row[1] for row in columns}
+        assert "chunk_text" in column_names
+
+        reinsert = MarkdownDocument(origin="legacy-doc", content="hello world")
+        reinsert.chunks = [
+            MarkdownChunk(
+                start_index=0,
+                end_index=len(reinsert.content),
+                text=reinsert.content,
+                token_count=len(reinsert.content),
+            )
+        ]
+        result = reconnected.insert(reinsert)
+        assert result.action == "skipped"
+
 
 class TestOpenAIStore:
     @pytest.fixture(autouse=True)

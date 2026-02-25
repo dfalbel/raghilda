@@ -213,6 +213,7 @@ class DuckDBStore(BaseStore):
         """
         con = duckdb.connect(database=location, read_only=read_only)
         _check_is_raghilda_con(con)
+        _ensure_embeddings_chunk_text_schema(con, read_only=read_only)
 
         row = con.execute(
             "SELECT name, title, embed_config, attributes_schema_json FROM metadata"
@@ -1283,6 +1284,50 @@ def _check_is_raghilda_con(con: duckdb.DuckDBPyConnection):
 
     if "metadata" not in tables:
         raise ValueError("Not a valid Raghilda database connection")
+
+
+def _ensure_embeddings_chunk_text_schema(
+    con: duckdb.DuckDBPyConnection, *, read_only: bool
+) -> None:
+    columns = con.execute("PRAGMA table_info('embeddings')").fetchall()
+    column_names = {row[1] for row in columns}
+    if "chunk_text" in column_names:
+        return
+    if read_only:
+        raise ValueError(
+            "Legacy DuckDB schema missing embeddings.chunk_text; reconnect with read_only=False once to migrate."
+        )
+
+    try:
+        con.begin()
+        con.execute("ALTER TABLE embeddings ADD COLUMN chunk_text VARCHAR")
+        con.execute(
+            """
+            UPDATE embeddings e
+            SET chunk_text = d.text[e.start_index:e.end_index]
+            FROM documents d
+            WHERE e.doc_id = d.doc_id
+            """
+        )
+        con.execute(
+            """
+            CREATE OR REPLACE VIEW chunks AS (
+                SELECT
+                    d.origin as origin,
+                    e.*,
+                    e.chunk_text as text
+                FROM documents d
+                JOIN embeddings e USING (doc_id)
+            )
+            """
+        )
+        con.commit()
+    except Exception:
+        try:
+            con.rollback()
+        except Exception:
+            pass
+        raise
 
 
 def _duckdb_append(con: duckdb.DuckDBPyConnection, table: str, data):
