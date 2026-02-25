@@ -553,6 +553,7 @@ class ChromaDBStore(BaseStore):
 
             ids = []
             chunk_attributes_records = []
+            merged_document_attributes: dict[str, Any] = {}
             for idx, chunk in enumerate(document.chunks):
                 resolved_attributes = merge_attribute_values(
                     attributes_spec=self.metadata.attributes_spec,
@@ -575,6 +576,9 @@ class ChromaDBStore(BaseStore):
                 chunk_attributes_records.append(
                     {k: v for k, v in chunk_record.items() if v is not None}
                 )
+                for key, value in resolved_attributes.items():
+                    if key not in merged_document_attributes:
+                        merged_document_attributes[key] = value
 
             self.collection.upsert(
                 ids=ids,
@@ -598,7 +602,7 @@ class ChromaDBStore(BaseStore):
                 origin=document.origin,
                 content=document.content,
                 chunks=document.chunks,
-                attributes=document.attributes,
+                attributes=merged_document_attributes or None,
             )
             return InsertResult(
                 action="replaced" if existing_ids else "inserted",

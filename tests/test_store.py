@@ -1822,6 +1822,7 @@ def test_openai_store_insert_updates_when_attributes_change_for_same_content():
         )
     )
     assert result.action == "replaced"
+    assert result.document.id == "file_new"
     assert result.replaced_document is not None
     assert result.replaced_document.id == "file_old"
     assert result.replaced_document.content == content
@@ -1974,6 +1975,135 @@ def test_openai_store_insert_unchanged_skips_with_multiple_managed_files():
     assert result.action == "skipped"
     assert result.document.id == "file_old_1"
     assert fake_vector_store_files.upload_calls == []
+    assert fake_vector_store_files.deleted_ids == []
+
+
+def test_openai_store_insert_replaces_when_any_managed_file_is_stale():
+    content = "hello world"
+    content_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
+    stale_content = "stale content"
+
+    class FakeVectorStoreFiles:
+        def __init__(self):
+            self.deleted_ids = []
+            self.upload_calls = []
+            self.page = _SinglePage(
+                [
+                    SimpleNamespace(
+                        id="file_matching",
+                        created_at=1,
+                        filename="doc.md",
+                        attributes={
+                            "_raghilda_origin": "doc",
+                            "_raghilda_content_hash": content_hash,
+                            "tenant": "new",
+                        },
+                    ),
+                    SimpleNamespace(
+                        id="file_stale",
+                        created_at=2,
+                        filename="doc.md",
+                        attributes={
+                            "_raghilda_origin": "doc",
+                            "_raghilda_content_hash": "different-hash",
+                            "tenant": "new",
+                        },
+                    ),
+                ]
+            )
+
+        def list(self, **kwargs):
+            return self.page
+
+        def delete(self, file_id, **kwargs):
+            self.deleted_ids.append(file_id)
+            return SimpleNamespace(id=file_id, deleted=True)
+
+        def upload_and_poll(self, **kwargs):
+            self.upload_calls.append(kwargs)
+            return SimpleNamespace(id="file_new")
+
+    class FakeFiles:
+        def content(self, file_id):
+            if file_id == "file_matching":
+                return SimpleNamespace(content=content.encode("utf-8"))
+            if file_id == "file_stale":
+                return SimpleNamespace(content=stale_content.encode("utf-8"))
+            raise AssertionError(f"unexpected file id: {file_id}")
+
+    fake_vector_store_files = FakeVectorStoreFiles()
+    fake_client = SimpleNamespace(
+        vector_stores=SimpleNamespace(files=fake_vector_store_files),
+        files=FakeFiles(),
+    )
+    store = OpenAIStore(
+        client=fake_client,
+        store_id="vs_test",
+        attributes={"tenant": str},
+    )
+
+    result = store.insert(
+        MarkdownDocument(
+            origin="doc",
+            content=content,
+            attributes={"tenant": "new"},
+        )
+    )
+
+    assert result.action == "replaced"
+    assert result.document.id == "file_new"
+    assert result.replaced_document is not None
+    assert result.replaced_document.id == "file_stale"
+    assert len(fake_vector_store_files.upload_calls) == 1
+    assert fake_vector_store_files.upload_calls[0]["attributes"]["tenant"] == "new"
+    assert sorted(fake_vector_store_files.deleted_ids) == [
+        "file_matching",
+        "file_stale",
+    ]
+
+
+def test_openai_store_insert_returns_uploaded_file_id_when_new_document():
+    class FakeVectorStoreFiles:
+        def __init__(self):
+            self.deleted_ids = []
+            self.upload_calls = []
+            self.page = _SinglePage([])
+
+        def list(self, **kwargs):
+            return self.page
+
+        def delete(self, file_id, **kwargs):
+            self.deleted_ids.append(file_id)
+            return SimpleNamespace(id=file_id, deleted=True)
+
+        def upload_and_poll(self, **kwargs):
+            self.upload_calls.append(kwargs)
+            return SimpleNamespace(id="file_uploaded")
+
+    fake_vector_store_files = FakeVectorStoreFiles()
+    fake_client = SimpleNamespace(
+        vector_stores=SimpleNamespace(files=fake_vector_store_files),
+        files=SimpleNamespace(content=lambda file_id: None),
+    )
+    store = OpenAIStore(
+        client=fake_client,
+        store_id="vs_test",
+        attributes={"tenant": str},
+    )
+
+    result = store.insert(
+        MarkdownDocument(
+            id="local-id",
+            origin="doc",
+            content="hello world",
+            attributes={"tenant": "new"},
+        )
+    )
+
+    assert result.action == "inserted"
+    assert result.document.id == "file_uploaded"
+    assert result.replaced_document is None
+    assert len(fake_vector_store_files.upload_calls) == 1
     assert fake_vector_store_files.deleted_ids == []
 
 

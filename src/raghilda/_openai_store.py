@@ -326,7 +326,12 @@ class OpenAIStore(BaseStore):
                 )
             ]
             replaced_document = None
-            if existing_files and skip_if_unchanged and matching_files:
+            if (
+                existing_files
+                and skip_if_unchanged
+                and matching_files
+                and len(matching_files) == len(existing_files)
+            ):
                 current_document = self._snapshot_document_from_file(matching_files[0])
                 if current_document is None:
                     current_document = MarkdownDocument(
@@ -359,16 +364,19 @@ class OpenAIStore(BaseStore):
 
             file = (document.origin + ".md", document.content.encode("utf-8"))
             if file_attributes:
-                self.client.vector_stores.files.upload_and_poll(
+                uploaded_file = self.client.vector_stores.files.upload_and_poll(
                     file=file,
                     vector_store_id=self.store_id,
                     attributes=file_attributes,
                 )
             else:
-                self.client.vector_stores.files.upload_and_poll(
+                uploaded_file = self.client.vector_stores.files.upload_and_poll(
                     file=file,
                     vector_store_id=self.store_id,
                 )
+            uploaded_file_id = getattr(uploaded_file, "id", None)
+            if uploaded_file_id is None:
+                raise ValueError("OpenAI upload response missing file id.")
             for vector_store_file in existing_files:
                 try:
                     self.client.vector_stores.files.delete(
@@ -384,7 +392,7 @@ class OpenAIStore(BaseStore):
                         error,
                     )
             current_document = MarkdownDocument(
-                id=document.id,
+                id=str(uploaded_file_id),
                 origin=document.origin,
                 content=document.content,
                 chunks=document.chunks,

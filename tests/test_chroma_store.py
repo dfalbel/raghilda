@@ -221,6 +221,54 @@ def test_insert_unchanged_preserves_document_attributes():
     assert second.document.attributes == {"tenant": "docs"}
 
 
+def test_insert_result_document_includes_merged_chunk_attributes():
+    store = ChromaDBStore.create(
+        location=":memory:",
+        embed=DummyEmbeddingFunction(),
+        name="test_store_insert_result_merged_attrs",
+        overwrite=True,
+        attributes={"tenant": str},
+    )
+
+    original = MarkdownDocument(
+        origin="same-origin",
+        content="hello world",
+    )
+    original.chunks = [
+        MarkdownChunk(
+            start_index=0,
+            end_index=len(original.content),
+            text=original.content,
+            token_count=len(original.content),
+            attributes={"tenant": "docs"},
+        )
+    ]
+
+    inserted = store.insert(original)
+    assert inserted.action == "inserted"
+    assert inserted.document.attributes == {"tenant": "docs"}
+
+    updated = MarkdownDocument(
+        origin="same-origin",
+        content="hello world updated",
+    )
+    updated.chunks = [
+        MarkdownChunk(
+            start_index=0,
+            end_index=len(updated.content),
+            text=updated.content,
+            token_count=len(updated.content),
+            attributes={"tenant": "docs"},
+        )
+    ]
+
+    replaced = store.insert(updated, skip_if_unchanged=False)
+    assert replaced.action == "replaced"
+    assert replaced.document.attributes == {"tenant": "docs"}
+    assert replaced.replaced_document is not None
+    assert replaced.replaced_document.attributes == {"tenant": "docs"}
+
+
 def test_insert_replaced_snapshot_uses_single_legacy_doc_id_group():
     store = ChromaDBStore.create(
         location=":memory:",
