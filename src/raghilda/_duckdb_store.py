@@ -348,6 +348,7 @@ class DuckDBStore(BaseStore):
             start_index INTEGER,
             end_index INTEGER,
             PRIMARY KEY (doc_id, start_index, end_index),
+            chunk_text VARCHAR,
             context VARCHAR{tail_columns_sql}
         );
 
@@ -355,7 +356,7 @@ class DuckDBStore(BaseStore):
             SELECT
             d.origin as origin,
             e.*,
-            d.text[ e.start_index : e.end_index ] as text
+            e.chunk_text as text
             FROM
             documents d
             JOIN
@@ -433,7 +434,6 @@ class DuckDBStore(BaseStore):
                 and self._chunk_layout_matches_existing(
                     chunked_doc=document,
                     doc_id=existing["doc_id"],
-                    document_text=existing["text"],
                 )
             ):
                 current_document = self._load_document_snapshot(
@@ -458,7 +458,6 @@ class DuckDBStore(BaseStore):
                 and self._chunk_layout_matches_existing(
                     chunked_doc=document,
                     doc_id=existing["doc_id"],
-                    document_text=existing["text"],
                 )
             ):
                 current_document = self._load_document_snapshot(
@@ -665,9 +664,8 @@ class DuckDBStore(BaseStore):
         # Remove token_count since it's not stored in the database
         if "token_count" in chunks.columns:
             chunks.drop(columns=["token_count"], inplace=True)
-        # Remove text since it's not stored in embeddings table (it's computed from documents table)
         if "text" in chunks.columns:
-            chunks.drop(columns=["text"], inplace=True)
+            chunks.rename(columns={"text": "chunk_text"}, inplace=True)
         # User attributes are represented as dedicated columns in embeddings.
         if "attributes" in chunks.columns:
             chunks.drop(columns=["attributes"], inplace=True)
@@ -697,10 +695,10 @@ class DuckDBStore(BaseStore):
         ]
 
     def _chunk_layout_matches_existing(
-        self, *, chunked_doc: MarkdownDocument, doc_id: str, document_text: str
+        self, *, chunked_doc: MarkdownDocument, doc_id: str
     ) -> bool:
         incoming = self._chunk_layout_records(chunked_doc)
-        existing = self._chunk_layout_records_from_store(doc_id, document_text)
+        existing = self._chunk_layout_records_from_store(doc_id)
         return incoming == existing
 
     def _chunk_layout_records(
@@ -727,9 +725,7 @@ class DuckDBStore(BaseStore):
         records.sort(key=lambda item: (item[0], item[1]))
         return records
 
-    def _chunk_layout_records_from_store(
-        self, doc_id: str, document_text: str
-    ) -> list[tuple[Any, ...]]:
+    def _chunk_layout_records_from_store(self, doc_id: str) -> list[tuple[Any, ...]]:
         attributes_columns = list(self.metadata.attributes_schema)
         attribute_select = ", ".join(
             _quote_identifier(col) for col in attributes_columns
@@ -741,6 +737,7 @@ class DuckDBStore(BaseStore):
             SELECT
                 e.start_index,
                 e.end_index,
+                e.chunk_text,
                 e.context
                 {attribute_select}
             FROM embeddings e
@@ -754,12 +751,16 @@ class DuckDBStore(BaseStore):
         for row in rows:
             start_index = int(row[0])
             end_index = int(row[1])
-            context = row[2]
+            chunk_text = row[2]
+            if chunk_text is None:
+                raise ValueError(
+                    f"Corrupted DuckDB store: missing chunk_text for doc_id '{doc_id}'."
+                )
+            context = row[3]
             attribute_values = [
-                self._coerce_chunk_layout_attribute_value(col, row[3 + idx])
+                self._coerce_chunk_layout_attribute_value(col, row[4 + idx])
                 for idx, col in enumerate(attributes_columns)
             ]
-            chunk_text = document_text[start_index:end_index]
             records.append(
                 (start_index, end_index, chunk_text, context, *attribute_values)
             )
@@ -786,6 +787,7 @@ class DuckDBStore(BaseStore):
             SELECT
                 start_index,
                 end_index,
+                chunk_text,
                 context
                 {attribute_select}
             FROM embeddings
@@ -811,7 +813,11 @@ class DuckDBStore(BaseStore):
                     document_attributes[key] = value
             start_index = int(row_dict["start_index"])
             end_index = int(row_dict["end_index"])
-            chunk_text = text[start_index:end_index]
+            chunk_text = row_dict["chunk_text"]
+            if chunk_text is None:
+                raise ValueError(
+                    f"Corrupted DuckDB store: missing chunk_text for doc_id '{doc_id}'."
+                )
             chunks.append(
                 MarkdownChunk(
                     start_index=start_index,

@@ -535,7 +535,9 @@ class OpenAIStore(BaseStore):
             for key, value in attributes.items()
             if key in self.attributes_schema
         }
+        file_id = getattr(vector_store_file, "id")
         return MarkdownDocument(
+            id=str(file_id),
             origin=origin,
             content=content,
             attributes=user_attributes or None,

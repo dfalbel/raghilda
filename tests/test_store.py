@@ -254,6 +254,45 @@ class TestDuckDBStore:
         assert second.action == "replaced"
         assert embed.calls == calls_after_create + 2
 
+    def test_insert_same_origin_with_changed_chunk_text_does_not_skip(self):
+        embed = CountingEmbedding()
+        store = DuckDBStore.create(
+            location=":memory:",
+            embed=embed,
+            overwrite=True,
+            name="insert_same_origin_chunk_text_change",
+        )
+        calls_after_create = embed.calls
+
+        content = "Hello World"
+        first = MarkdownDocument(origin="doc-1", content=content)
+        first.chunks = [
+            MarkdownChunk(
+                start_index=0,
+                end_index=len(content),
+                text=content.lower(),
+                token_count=len(content),
+            )
+        ]
+
+        inserted = store.insert(first)
+        assert inserted.action == "inserted"
+        assert embed.calls == calls_after_create + 1
+
+        second = MarkdownDocument(origin="doc-1", content=content)
+        second.chunks = [
+            MarkdownChunk(
+                start_index=0,
+                end_index=len(content),
+                text=content,
+                token_count=len(content),
+            )
+        ]
+
+        replaced = store.insert(second)
+        assert replaced.action == "replaced"
+        assert embed.calls == calls_after_create + 2
+
     def test_insert_same_multi_chunk_layout_skips_when_unchanged(self):
         embed = CountingEmbedding()
         store = DuckDBStore.create(
@@ -448,7 +487,7 @@ class TestDuckDBStore:
             "CREATE TABLE _legacy_documents AS SELECT doc_id, origin, text FROM documents"
         )
         store.con.execute(
-            "CREATE TABLE _legacy_embeddings AS SELECT doc_id, chunk_id, start_index, end_index, context FROM embeddings"
+            "CREATE TABLE _legacy_embeddings AS SELECT doc_id, chunk_id, start_index, end_index, chunk_text, context FROM embeddings"
         )
         store.con.execute("DROP VIEW chunks")
         store.con.execute("DROP TABLE embeddings")
@@ -470,6 +509,7 @@ class TestDuckDBStore:
                 start_index INTEGER,
                 end_index INTEGER,
                 PRIMARY KEY (doc_id, start_index, end_index),
+                chunk_text VARCHAR,
                 context VARCHAR
             )
             """
@@ -481,8 +521,8 @@ class TestDuckDBStore:
         )
         store.con.execute(
             """
-            INSERT INTO embeddings (doc_id, start_index, end_index, context)
-            VALUES ('doc_stale', 0, 12, NULL)
+            INSERT INTO embeddings (doc_id, start_index, end_index, chunk_text, context)
+            VALUES ('doc_stale', 0, 12, 'stale content', NULL)
             """
         )
         store.con.execute("DROP TABLE _legacy_documents")
@@ -493,7 +533,7 @@ class TestDuckDBStore:
                 SELECT
                     d.origin as origin,
                     e.*,
-                    d.text[e.start_index:e.end_index] as text
+                    e.chunk_text as text
                 FROM documents d
                 JOIN embeddings e USING (doc_id)
             )
@@ -1696,10 +1736,84 @@ def test_openai_store_insert_updates_when_attributes_change_for_same_content():
     )
     assert result.action == "replaced"
     assert result.replaced_document is not None
+    assert result.replaced_document.id == "file_old"
     assert result.replaced_document.content == content
     assert fake_vector_store_files.deleted_ids == ["file_old"]
     assert len(fake_vector_store_files.upload_calls) == 1
     assert fake_vector_store_files.upload_calls[0]["attributes"]["tenant"] == "new"
+
+
+def test_openai_store_insert_unchanged_returns_stable_snapshot_id():
+    content = "hello world"
+    content_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
+
+    class FakeVectorStoreFiles:
+        def __init__(self):
+            self.deleted_ids = []
+            self.upload_calls = []
+            self.page = _SinglePage(
+                [
+                    SimpleNamespace(
+                        id="file_old",
+                        created_at=1,
+                        filename="doc.md",
+                        attributes={
+                            "_raghilda_origin": "doc",
+                            "_raghilda_content_hash": content_hash,
+                            "tenant": "new",
+                        },
+                    )
+                ]
+            )
+
+        def list(self, **kwargs):
+            return self.page
+
+        def delete(self, file_id, **kwargs):
+            self.deleted_ids.append(file_id)
+            return SimpleNamespace(id=file_id, deleted=True)
+
+        def upload_and_poll(self, **kwargs):
+            self.upload_calls.append(kwargs)
+            return SimpleNamespace(id="file_new")
+
+    class FakeFiles:
+        def content(self, file_id):
+            assert file_id == "file_old"
+            return SimpleNamespace(content=content.encode("utf-8"))
+
+    fake_vector_store_files = FakeVectorStoreFiles()
+    fake_client = SimpleNamespace(
+        vector_stores=SimpleNamespace(files=fake_vector_store_files),
+        files=FakeFiles(),
+    )
+    store = OpenAIStore(
+        client=fake_client,
+        store_id="vs_test",
+        attributes={"tenant": str},
+    )
+
+    first = store.insert(
+        MarkdownDocument(
+            origin="doc",
+            content=content,
+            attributes={"tenant": "new"},
+        )
+    )
+    second = store.insert(
+        MarkdownDocument(
+            origin="doc",
+            content=content,
+            attributes={"tenant": "new"},
+        )
+    )
+
+    assert first.action == "skipped"
+    assert second.action == "skipped"
+    assert first.document.id == "file_old"
+    assert second.document.id == "file_old"
+    assert fake_vector_store_files.upload_calls == []
+    assert fake_vector_store_files.deleted_ids == []
 
 
 def test_openai_store_insert_rejects_too_many_user_attributes():
