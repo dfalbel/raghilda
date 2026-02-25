@@ -1,7 +1,6 @@
 import openai
 import json
 import hashlib
-import logging
 import threading
 from contextlib import contextmanager
 from ._store import BaseStore, InsertResult
@@ -31,7 +30,6 @@ _RESERVED_INTERNAL_ATTRIBUTE_KEYS = {
 }
 _OPENAI_MAX_FILE_ATTRIBUTES = 16
 _OPENAI_INTERNAL_ATTRIBUTE_COUNT = 2
-logger = logging.getLogger(__name__)
 
 
 def _ensure_openai_user_attribute_limit(user_attribute_count: int) -> None:
@@ -222,15 +220,16 @@ class OpenAIStore(BaseStore):
         client = openai.Client(api_key=api_key, base_url=base_url)
         vector_store = client.vector_stores.retrieve(vector_store_id=store_id)
         store_metadata = getattr(vector_store, "metadata", None) or {}
-
-        resolved_attributes_spec: dict[str, AttributeSpec] = {}
-        if store_metadata.get(_ATTRIBUTES_SCHEMA_METADATA_KEY):
-            resolved_attributes_spec = attributes_spec_from_json_dict(
-                json.loads(store_metadata[_ATTRIBUTES_SCHEMA_METADATA_KEY]),
-                allow_vector_types=False,
-                allow_struct_types=False,
-                allow_optional_values=False,
+        if _ATTRIBUTES_SCHEMA_METADATA_KEY not in store_metadata:
+            raise ValueError(
+                f"OpenAI vector store metadata is missing required key '{_ATTRIBUTES_SCHEMA_METADATA_KEY}'."
             )
+        resolved_attributes_spec = attributes_spec_from_json_dict(
+            json.loads(store_metadata[_ATTRIBUTES_SCHEMA_METADATA_KEY]),
+            allow_vector_types=False,
+            allow_struct_types=False,
+            allow_optional_values=False,
+        )
         _ensure_no_reserved_attributes(
             resolved_attributes_spec,
             _RESERVED_INTERNAL_ATTRIBUTE_KEYS,
@@ -317,6 +316,10 @@ class OpenAIStore(BaseStore):
                 for vector_store_file in self._iter_vector_store_files()
                 if self._matches_existing_origin(vector_store_file, document.origin)
             ]
+            if len(existing_files) > 1:
+                raise ValueError(
+                    f"Corrupted OpenAI vector store: multiple managed files found for origin '{document.origin}'."
+                )
             matching_files = [
                 vector_store_file
                 for vector_store_file in existing_files
@@ -327,12 +330,7 @@ class OpenAIStore(BaseStore):
                 )
             ]
             replaced_document = None
-            if (
-                existing_files
-                and skip_if_unchanged
-                and matching_files
-                and len(matching_files) == len(existing_files)
-            ):
+            if existing_files and skip_if_unchanged and len(matching_files) == 1:
                 current_document = self._snapshot_document_from_file(matching_files[0])
                 if current_document is None:
                     matching_file_id = getattr(matching_files[0], "id", None)
@@ -349,14 +347,7 @@ class OpenAIStore(BaseStore):
                 )
 
             if existing_files:
-                replaced_document = self._snapshot_document_from_file(
-                    max(
-                        existing_files,
-                        key=lambda vector_store_file: getattr(
-                            vector_store_file, "created_at", 0
-                        ),
-                    )
-                )
+                replaced_document = self._snapshot_document_from_file(existing_files[0])
 
             file_attributes = {
                 **user_file_attributes,
@@ -380,19 +371,10 @@ class OpenAIStore(BaseStore):
             if uploaded_file_id is None:
                 raise ValueError("OpenAI upload response missing file id.")
             for vector_store_file in existing_files:
-                try:
-                    self.client.vector_stores.files.delete(
-                        file_id=vector_store_file.id,
-                        vector_store_id=self.store_id,
-                    )
-                except openai.APIError as error:
-                    logger.warning(
-                        "Failed to delete stale OpenAI file %s for origin %s in store %s: %s",
-                        getattr(vector_store_file, "id", "<unknown>"),
-                        document.origin,
-                        self.store_id,
-                        error,
-                    )
+                self.client.vector_stores.files.delete(
+                    file_id=vector_store_file.id,
+                    vector_store_id=self.store_id,
+                )
             current_document = MarkdownDocument(
                 id=str(uploaded_file_id),
                 origin=document.origin,

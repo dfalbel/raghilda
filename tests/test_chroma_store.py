@@ -3,7 +3,6 @@ import socket
 import threading
 import time
 import json
-import hashlib
 from typing import Annotated
 
 pytest.importorskip("chromadb")
@@ -269,80 +268,6 @@ def test_insert_result_document_includes_merged_chunk_attributes():
     assert replaced.replaced_document.attributes == {"tenant": "docs"}
 
 
-def test_insert_replaced_snapshot_uses_single_legacy_doc_id_group():
-    store = ChromaDBStore.create(
-        location=":memory:",
-        embed=DummyEmbeddingFunction(),
-        name="test_store_legacy_duplicate_origin_snapshot",
-        overwrite=True,
-        attributes={"version": str},
-    )
-
-    store.collection.upsert(
-        ids=["legacy-a:0", "legacy-b:0"],
-        documents=["alpha", "beta"],
-        metadatas=[
-            {
-                "doc_id": "doc_a",
-                "chunk_id": 0,
-                "start_index": 0,
-                "end_index": 5,
-                "token_count": 5,
-                "origin": "same-origin",
-                "_raghilda_content_hash": hashlib.sha256(
-                    "alpha".encode("utf-8")
-                ).hexdigest(),
-                "_raghilda_content_text": "alpha",
-                "version": "a",
-            },
-            {
-                "doc_id": "doc_b",
-                "chunk_id": 0,
-                "start_index": 0,
-                "end_index": 4,
-                "token_count": 4,
-                "origin": "same-origin",
-                "_raghilda_content_hash": hashlib.sha256(
-                    "beta".encode("utf-8")
-                ).hexdigest(),
-                "_raghilda_content_text": "beta",
-                "version": "b",
-            },
-        ],
-    )
-
-    updated = MarkdownDocument(
-        origin="same-origin",
-        content="gamma",
-        attributes={"version": "new"},
-    )
-    updated.chunks = [
-        MarkdownChunk(
-            start_index=0,
-            end_index=5,
-            text="gamma",
-            token_count=5,
-        )
-    ]
-
-    result = store.insert(updated, skip_if_unchanged=False)
-    assert result.action == "replaced"
-    assert result.replaced_document is not None
-    assert len(result.replaced_document.chunks or []) == 1
-
-    if result.replaced_document.id == "doc_a":
-        assert result.replaced_document.content == "alpha"
-        assert result.replaced_document.attributes == {"version": "a"}
-        assert result.replaced_document.chunks is not None
-        assert result.replaced_document.chunks[0].text == "alpha"
-    else:
-        assert result.replaced_document.id == "doc_b"
-        assert result.replaced_document.content == "beta"
-        assert result.replaced_document.attributes == {"version": "b"}
-        assert result.replaced_document.chunks is not None
-        assert result.replaced_document.chunks[0].text == "beta"
-
-
 def test_insert_keeps_existing_chunks_when_upsert_fails(monkeypatch):
     store = ChromaDBStore.create(
         location=":memory:",
@@ -388,7 +313,7 @@ def test_insert_keeps_existing_chunks_when_upsert_fails(monkeypatch):
     assert existing["documents"] == ["hello world"]
 
 
-def test_insert_succeeds_when_stale_chunk_delete_fails(monkeypatch):
+def test_insert_raises_when_stale_chunk_delete_fails(monkeypatch):
     store = ChromaDBStore.create(
         location=":memory:",
         embed=DummyEmbeddingFunction(),
@@ -432,8 +357,8 @@ def test_insert_succeeds_when_stale_chunk_delete_fails(monkeypatch):
         )
     ]
 
-    result = store.insert(updated, skip_if_unchanged=False)
-    assert result.action == "replaced"
+    with pytest.raises(RuntimeError, match="delete failed"):
+        store.insert(updated, skip_if_unchanged=False)
     assert len(delete_calls) == 1
     assert delete_calls[0]["ids"] == ["same-origin:1"]
 
@@ -739,8 +664,6 @@ def test_retrieve_with_deoverlap():
     assert results_merged[0].start_index == 0
     assert results_merged[0].end_index == 17
     assert results_merged[0].text == "hello world hello"
-    assert len(results_merged[0].chunk_ids) == 2
-    assert all(isinstance(chunk_id, int) for chunk_id in results_merged[0].chunk_ids)
 
     # With deoverlap=False, both chunks should be returned
     results_separate = store.retrieve("hello", top_k=2, deoverlap=False)
@@ -768,60 +691,6 @@ def test_retrieve_with_deoverlap_aggregates_attributes():
     assert len(results) == 1
     assert results[0].context == "h1"
     assert results[0].attributes == {"topic": ["first", "second"]}
-
-
-def test_retrieve_chunk_ids_are_globally_unique_and_filterable():
-    store = ChromaDBStore.create(
-        location=":memory:",
-        embed=DummyEmbeddingFunction(),
-        name="test_chunk_ids_filterable",
-        overwrite=True,
-    )
-
-    doc_one = MarkdownDocument(origin="origin-a", content="alpha")
-    doc_one.chunks = [
-        MarkdownChunk(
-            start_index=0,
-            end_index=5,
-            text="alpha",
-            token_count=5,
-        )
-    ]
-    doc_two = MarkdownDocument(origin="origin-b", content="alpha")
-    doc_two.chunks = [
-        MarkdownChunk(
-            start_index=0,
-            end_index=5,
-            text="alpha",
-            token_count=5,
-        )
-    ]
-
-    store.insert(doc_one)
-    store.insert(doc_two)
-
-    all_results = store.retrieve("alpha", top_k=2, deoverlap=False)
-    all_chunk_ids = [chunk_id for chunk in all_results for chunk_id in chunk.chunk_ids]
-    assert len(all_chunk_ids) == 2
-    assert len(set(all_chunk_ids)) == 2
-
-    first_result = store.retrieve("alpha", top_k=1, deoverlap=False)
-    seen_chunk_ids = [
-        chunk_id for chunk in first_result for chunk_id in chunk.chunk_ids
-    ]
-    remaining = store.retrieve(
-        "alpha",
-        top_k=2,
-        deoverlap=False,
-        attributes_filter={
-            "type": "nin",
-            "key": "chunk_id",
-            "value": seen_chunk_ids,
-        },
-    )
-    remaining_ids = [chunk_id for chunk in remaining for chunk_id in chunk.chunk_ids]
-    assert remaining_ids
-    assert set(remaining_ids).isdisjoint(set(seen_chunk_ids))
 
 
 def test_insert_and_retrieve_with_attributes_filter():

@@ -463,113 +463,6 @@ class TestDuckDBStore:
             "world",
         ]
 
-    def test_insert_replaced_removes_legacy_duplicate_origin_rows(self):
-        store = DuckDBStore.create(
-            location=":memory:",
-            embed=None,
-            overwrite=True,
-            name="insert_replace_duplicate_origin_cleanup",
-        )
-        first = MarkdownDocument(origin="doc-1", content="hello world")
-        first.chunks = [
-            MarkdownChunk(
-                start_index=0,
-                end_index=len(first.content),
-                text=first.content,
-                token_count=len(first.content),
-            )
-        ]
-        inserted = store.insert(first)
-        assert inserted.action == "inserted"
-
-        # Simulate a legacy schema/state where multiple rows can share an origin.
-        store.con.execute(
-            "CREATE TABLE _legacy_documents AS SELECT doc_id, origin, text FROM documents"
-        )
-        store.con.execute(
-            "CREATE TABLE _legacy_embeddings AS SELECT doc_id, chunk_id, start_index, end_index, chunk_text, context FROM embeddings"
-        )
-        store.con.execute("DROP VIEW chunks")
-        store.con.execute("DROP TABLE embeddings")
-        store.con.execute("DROP TABLE documents")
-        store.con.execute(
-            """
-            CREATE TABLE documents (
-                doc_id VARCHAR PRIMARY KEY,
-                origin VARCHAR,
-                text VARCHAR
-            )
-            """
-        )
-        store.con.execute(
-            """
-            CREATE TABLE embeddings (
-                doc_id VARCHAR NOT NULL,
-                chunk_id INTEGER DEFAULT nextval('chunk_id_seq'),
-                start_index INTEGER,
-                end_index INTEGER,
-                PRIMARY KEY (doc_id, start_index, end_index),
-                chunk_text VARCHAR,
-                context VARCHAR
-            )
-            """
-        )
-        store.con.execute("INSERT INTO documents SELECT * FROM _legacy_documents")
-        store.con.execute("INSERT INTO embeddings SELECT * FROM _legacy_embeddings")
-        store.con.execute(
-            "INSERT INTO documents (doc_id, origin, text) VALUES ('doc_stale', 'doc-1', 'stale content')"
-        )
-        store.con.execute(
-            """
-            INSERT INTO embeddings (doc_id, start_index, end_index, chunk_text, context)
-            VALUES ('doc_stale', 0, 12, 'stale content', NULL)
-            """
-        )
-        store.con.execute("DROP TABLE _legacy_documents")
-        store.con.execute("DROP TABLE _legacy_embeddings")
-        store.con.execute(
-            """
-            CREATE OR REPLACE VIEW chunks AS (
-                SELECT
-                    d.origin as origin,
-                    e.*,
-                    e.chunk_text as text
-                FROM documents d
-                JOIN embeddings e USING (doc_id)
-            )
-            """
-        )
-
-        replacement = MarkdownDocument(origin="doc-1", content="new content")
-        replacement.chunks = [
-            MarkdownChunk(
-                start_index=0,
-                end_index=len(replacement.content),
-                text=replacement.content,
-                token_count=len(replacement.content),
-            )
-        ]
-        result = store.insert(replacement, skip_if_unchanged=False)
-        assert result.action == "replaced"
-
-        origin_rows = store.con.execute(
-            "SELECT COUNT(*) FROM documents WHERE origin = 'doc-1'"
-        ).fetchone()
-        assert origin_rows is not None
-        assert origin_rows[0] == 1
-
-        stale_doc_rows = store.con.execute(
-            "SELECT COUNT(*) FROM documents WHERE doc_id = 'doc_stale'"
-        ).fetchone()
-        assert stale_doc_rows is not None
-        assert stale_doc_rows[0] == 0
-
-        stale_embedding_rows = store.con.execute(
-            "SELECT COUNT(*) FROM embeddings WHERE doc_id = 'doc_stale'"
-        ).fetchone()
-        assert stale_embedding_rows is not None
-        assert stale_embedding_rows[0] == 0
-
     @pytest.mark.parametrize("embed", [EmbeddingOpenAI()], indirect=True)
     def test_retrieve_vss(self, store_with_docs):
         results = store_with_docs.retrieve_vss("test", top_k=3)
@@ -711,8 +604,6 @@ class TestDuckDBStore:
         assert len(results) == 1
         assert results[0].context == "h1"
         assert results[0].attributes == {"topic": ["first", "second"]}
-        assert len(results[0].chunk_ids) == 2
-        assert all(isinstance(chunk_id, int) for chunk_id in results[0].chunk_ids)
 
     def test_retrieve_supports_excluding_seen_chunk_ids(self, store):
         content = "alpha one alpha two alpha three"
@@ -1506,76 +1397,6 @@ class TestDuckDBStore:
             "priority": int,
         }
 
-    def test_connect_migrates_legacy_embeddings_without_chunk_text(self, tmp_path):
-        db_path = tmp_path / "legacy-without-chunk-text.db"
-        store = DuckDBStore.create(
-            location=str(db_path),
-            embed=None,
-            overwrite=True,
-            name="legacy_connect_test",
-        )
-        doc = MarkdownDocument(origin="legacy-doc", content="hello world")
-        doc.chunks = [
-            MarkdownChunk(
-                start_index=0,
-                end_index=len(doc.content),
-                text=doc.content,
-                token_count=len(doc.content),
-            )
-        ]
-        store.insert(doc)
-
-        # Simulate a pre-migration schema that lacked embeddings.chunk_text.
-        store.con.execute(
-            "CREATE TABLE _legacy_embeddings AS SELECT doc_id, chunk_id, start_index, end_index, context FROM embeddings"
-        )
-        store.con.execute("DROP VIEW chunks")
-        store.con.execute("DROP TABLE embeddings")
-        store.con.execute(
-            """
-            CREATE TABLE embeddings (
-                doc_id VARCHAR NOT NULL,
-                chunk_id INTEGER DEFAULT nextval('chunk_id_seq'),
-                start_index INTEGER,
-                end_index INTEGER,
-                PRIMARY KEY (doc_id, start_index, end_index),
-                context VARCHAR
-            )
-            """
-        )
-        store.con.execute("INSERT INTO embeddings SELECT * FROM _legacy_embeddings")
-        store.con.execute("DROP TABLE _legacy_embeddings")
-        store.con.execute(
-            """
-            CREATE OR REPLACE VIEW chunks AS (
-                SELECT
-                    d.origin as origin,
-                    e.*,
-                    d.text[e.start_index:e.end_index] as text
-                FROM documents d
-                JOIN embeddings e USING (doc_id)
-            )
-            """
-        )
-        store.con.close()
-
-        reconnected = DuckDBStore.connect(str(db_path))
-        columns = reconnected.con.execute("PRAGMA table_info('embeddings')").fetchall()
-        column_names = {row[1] for row in columns}
-        assert "chunk_text" in column_names
-
-        reinsert = MarkdownDocument(origin="legacy-doc", content="hello world")
-        reinsert.chunks = [
-            MarkdownChunk(
-                start_index=0,
-                end_index=len(reinsert.content),
-                text=reinsert.content,
-                token_count=len(reinsert.content),
-            )
-        ]
-        result = reconnected.insert(reinsert)
-        assert result.action == "skipped"
-
 
 class TestOpenAIStore:
     @pytest.fixture(autouse=True)
@@ -2044,9 +1865,8 @@ def test_openai_store_insert_skipped_fallback_preserves_existing_file_id():
     assert fake_vector_store_files.deleted_ids == []
 
 
-def test_openai_store_insert_unchanged_skips_with_multiple_managed_files():
+def test_openai_store_insert_rejects_multiple_managed_files_for_origin():
     content = "hello world"
-    content_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
 
     class FakeVectorStoreFiles:
         def __init__(self):
@@ -2055,22 +1875,22 @@ def test_openai_store_insert_unchanged_skips_with_multiple_managed_files():
             self.page = _SinglePage(
                 [
                     SimpleNamespace(
-                        id="file_old_1",
+                        id="file_one",
                         created_at=1,
                         filename="doc.md",
                         attributes={
                             "_raghilda_origin": "doc",
-                            "_raghilda_content_hash": content_hash,
+                            "_raghilda_content_hash": "hash-a",
                             "tenant": "new",
                         },
                     ),
                     SimpleNamespace(
-                        id="file_old_2",
+                        id="file_two",
                         created_at=2,
                         filename="doc.md",
                         attributes={
                             "_raghilda_origin": "doc",
-                            "_raghilda_content_hash": content_hash,
+                            "_raghilda_content_hash": "hash-b",
                             "tenant": "new",
                         },
                     ),
@@ -2088,15 +1908,10 @@ def test_openai_store_insert_unchanged_skips_with_multiple_managed_files():
             self.upload_calls.append(kwargs)
             return SimpleNamespace(id="file_new")
 
-    class FakeFiles:
-        def content(self, file_id):
-            assert file_id == "file_old_1"
-            return SimpleNamespace(content=content.encode("utf-8"))
-
     fake_vector_store_files = FakeVectorStoreFiles()
     fake_client = SimpleNamespace(
         vector_stores=SimpleNamespace(files=fake_vector_store_files),
-        files=FakeFiles(),
+        files=SimpleNamespace(content=lambda file_id: None),
     )
     store = OpenAIStore(
         client=fake_client,
@@ -2104,102 +1919,17 @@ def test_openai_store_insert_unchanged_skips_with_multiple_managed_files():
         attributes={"tenant": str},
     )
 
-    result = store.insert(
-        MarkdownDocument(
-            origin="doc",
-            content=content,
-            attributes={"tenant": "new"},
+    with pytest.raises(ValueError, match="multiple managed files"):
+        store.insert(
+            MarkdownDocument(
+                origin="doc",
+                content=content,
+                attributes={"tenant": "new"},
+            )
         )
-    )
 
-    assert result.action == "skipped"
-    assert result.document.id == "file_old_1"
     assert fake_vector_store_files.upload_calls == []
     assert fake_vector_store_files.deleted_ids == []
-
-
-def test_openai_store_insert_replaces_when_any_managed_file_is_stale():
-    content = "hello world"
-    content_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
-    stale_content = "stale content"
-
-    class FakeVectorStoreFiles:
-        def __init__(self):
-            self.deleted_ids = []
-            self.upload_calls = []
-            self.page = _SinglePage(
-                [
-                    SimpleNamespace(
-                        id="file_matching",
-                        created_at=1,
-                        filename="doc.md",
-                        attributes={
-                            "_raghilda_origin": "doc",
-                            "_raghilda_content_hash": content_hash,
-                            "tenant": "new",
-                        },
-                    ),
-                    SimpleNamespace(
-                        id="file_stale",
-                        created_at=2,
-                        filename="doc.md",
-                        attributes={
-                            "_raghilda_origin": "doc",
-                            "_raghilda_content_hash": "different-hash",
-                            "tenant": "new",
-                        },
-                    ),
-                ]
-            )
-
-        def list(self, **kwargs):
-            return self.page
-
-        def delete(self, file_id, **kwargs):
-            self.deleted_ids.append(file_id)
-            return SimpleNamespace(id=file_id, deleted=True)
-
-        def upload_and_poll(self, **kwargs):
-            self.upload_calls.append(kwargs)
-            return SimpleNamespace(id="file_new")
-
-    class FakeFiles:
-        def content(self, file_id):
-            if file_id == "file_matching":
-                return SimpleNamespace(content=content.encode("utf-8"))
-            if file_id == "file_stale":
-                return SimpleNamespace(content=stale_content.encode("utf-8"))
-            raise AssertionError(f"unexpected file id: {file_id}")
-
-    fake_vector_store_files = FakeVectorStoreFiles()
-    fake_client = SimpleNamespace(
-        vector_stores=SimpleNamespace(files=fake_vector_store_files),
-        files=FakeFiles(),
-    )
-    store = OpenAIStore(
-        client=fake_client,
-        store_id="vs_test",
-        attributes={"tenant": str},
-    )
-
-    result = store.insert(
-        MarkdownDocument(
-            origin="doc",
-            content=content,
-            attributes={"tenant": "new"},
-        )
-    )
-
-    assert result.action == "replaced"
-    assert result.document.id == "file_new"
-    assert result.replaced_document is not None
-    assert result.replaced_document.id == "file_stale"
-    assert len(fake_vector_store_files.upload_calls) == 1
-    assert fake_vector_store_files.upload_calls[0]["attributes"]["tenant"] == "new"
-    assert sorted(fake_vector_store_files.deleted_ids) == [
-        "file_matching",
-        "file_stale",
-    ]
 
 
 def test_openai_store_insert_returns_uploaded_file_id_when_new_document():
@@ -2560,7 +2290,7 @@ def test_openai_store_insert_serializes_replacement_for_same_origin():
     assert len(managed) == 1
 
 
-def test_openai_store_insert_succeeds_when_old_file_delete_fails():
+def test_openai_store_insert_raises_when_old_file_delete_fails():
     old_content = "hello world"
     new_content = "hello world updated"
     old_hash = hashlib.sha256(old_content.encode("utf-8")).hexdigest()
@@ -2615,16 +2345,14 @@ def test_openai_store_insert_succeeds_when_old_file_delete_fails():
         attributes={"tenant": str},
     )
 
-    result = store.insert(
-        MarkdownDocument(
-            origin="doc",
-            content=new_content,
-            attributes={"tenant": "new"},
+    with pytest.raises(openai.APIConnectionError):
+        store.insert(
+            MarkdownDocument(
+                origin="doc",
+                content=new_content,
+                attributes={"tenant": "new"},
+            )
         )
-    )
-    assert result.action == "replaced"
-    assert result.replaced_document is not None
-    assert result.replaced_document.content == old_content
     assert fake_vector_store_files.deleted_ids == ["file_old"]
     assert len(fake_vector_store_files.upload_calls) == 1
 
@@ -2681,6 +2409,22 @@ def test_openai_store_connect_rejects_internal_attribute_names_from_metadata(
     monkeypatch.setattr("raghilda._openai_store.openai.Client", fake_openai_client)
 
     with pytest.raises(ValueError, match="_raghilda_origin"):
+        OpenAIStore.connect(store_id="vs_test")
+
+
+def test_openai_store_connect_requires_attributes_schema_metadata(monkeypatch):
+    class FakeVectorStores:
+        def retrieve(self, *, vector_store_id):
+            return SimpleNamespace(id=vector_store_id, metadata={})
+
+    fake_client = SimpleNamespace(vector_stores=FakeVectorStores())
+
+    def fake_openai_client(*, api_key=None, base_url=None):
+        return fake_client
+
+    monkeypatch.setattr("raghilda._openai_store.openai.Client", fake_openai_client)
+
+    with pytest.raises(ValueError, match="missing required key"):
         OpenAIStore.connect(store_id="vs_test")
 
 

@@ -212,7 +212,6 @@ class DuckDBStore(BaseStore):
             Path to the DuckDB database file.
         read_only
             Whether to open the database in read-only mode.
-
         Returns
         -------
         DuckDBStore
@@ -220,7 +219,6 @@ class DuckDBStore(BaseStore):
         """
         con = duckdb.connect(database=location, read_only=read_only)
         _check_is_raghilda_con(con)
-        _ensure_embeddings_chunk_text_schema(con, read_only=read_only)
 
         row = con.execute(
             "SELECT name, title, embed_config, attributes_schema_json FROM metadata"
@@ -434,7 +432,7 @@ class DuckDBStore(BaseStore):
         # existing stored content/chunk layout is identical.
         with self._db_lock:
             existing_rows = self._get_existing_documents_by_origin(document.origin)
-            existing = existing_rows[0] if len(existing_rows) == 1 else None
+            existing = existing_rows[0] if existing_rows else None
             if (
                 skip_if_unchanged
                 and existing is not None
@@ -458,7 +456,7 @@ class DuckDBStore(BaseStore):
 
         with self._db_lock:
             existing_rows = self._get_existing_documents_by_origin(document.origin)
-            existing = existing_rows[0] if len(existing_rows) == 1 else None
+            existing = existing_rows[0] if existing_rows else None
             if (
                 skip_if_unchanged
                 and existing is not None
@@ -481,36 +479,25 @@ class DuckDBStore(BaseStore):
             action = "inserted"
             replaced_document: MarkdownDocument | None = None
             result_doc_id = document.id
-            replaced_doc_ids: list[str] = []
-            stale_doc_ids: list[str] = []
-            if existing_rows:
+            if existing is not None:
                 action = "replaced"
-                doc_id = existing_rows[0]["doc_id"]
+                doc_id = existing["doc_id"]
                 result_doc_id = doc_id
                 replaced_document = self._load_document_snapshot(
                     doc_id=doc_id,
                     origin=document.origin,
-                    text=existing_rows[0]["text"],
+                    text=existing["text"],
                 )
                 doc_row["doc_id"] = doc_id
                 chunk_rows["doc_id"] = [doc_id] * len(chunk_rows)
-                stale_doc_ids = [row["doc_id"] for row in existing_rows[1:]]
-                replaced_doc_ids = [doc_id, *stale_doc_ids]
 
             try:
                 self.con.begin()
                 if action == "replaced":
-                    placeholders = ", ".join("?" for _ in replaced_doc_ids)
                     self.con.execute(
-                        f"DELETE FROM embeddings WHERE doc_id IN ({placeholders})",
-                        replaced_doc_ids,
+                        "DELETE FROM embeddings WHERE doc_id = ?",
+                        [doc_row["doc_id"][0]],
                     )
-                    if stale_doc_ids:
-                        stale_placeholders = ", ".join("?" for _ in stale_doc_ids)
-                        self.con.execute(
-                            f"DELETE FROM documents WHERE doc_id IN ({stale_placeholders})",
-                            stale_doc_ids,
-                        )
                     self.con.execute(
                         "UPDATE documents SET text = ? WHERE doc_id = ?",
                         [doc_row["text"][0], doc_row["doc_id"][0]],
@@ -1291,50 +1278,6 @@ def _check_is_raghilda_con(con: duckdb.DuckDBPyConnection):
 
     if "metadata" not in tables:
         raise ValueError("Not a valid Raghilda database connection")
-
-
-def _ensure_embeddings_chunk_text_schema(
-    con: duckdb.DuckDBPyConnection, *, read_only: bool
-) -> None:
-    columns = con.execute("PRAGMA table_info('embeddings')").fetchall()
-    column_names = {row[1] for row in columns}
-    if "chunk_text" in column_names:
-        return
-    if read_only:
-        raise ValueError(
-            "Legacy DuckDB schema missing embeddings.chunk_text; reconnect with read_only=False once to migrate."
-        )
-
-    try:
-        con.begin()
-        con.execute("ALTER TABLE embeddings ADD COLUMN chunk_text VARCHAR")
-        con.execute(
-            """
-            UPDATE embeddings e
-            SET chunk_text = d.text[e.start_index:e.end_index]
-            FROM documents d
-            WHERE e.doc_id = d.doc_id
-            """
-        )
-        con.execute(
-            """
-            CREATE OR REPLACE VIEW chunks AS (
-                SELECT
-                    d.origin as origin,
-                    e.*,
-                    e.chunk_text as text
-                FROM documents d
-                JOIN embeddings e USING (doc_id)
-            )
-            """
-        )
-        con.commit()
-    except Exception:
-        try:
-            con.rollback()
-        except Exception:
-            pass
-        raise
 
 
 def _duckdb_append(con: duckdb.DuckDBPyConnection, table: str, data):

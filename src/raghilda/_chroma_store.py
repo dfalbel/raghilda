@@ -5,7 +5,6 @@ from contextlib import contextmanager
 import hashlib
 import importlib
 import json
-import logging
 from pathlib import Path
 import threading
 from collections.abc import Sized
@@ -81,7 +80,6 @@ _FILTERABLE_BASE_COLUMNS = {
     "context",
     "origin",
 }
-logger = logging.getLogger(__name__)
 
 
 def _ensure_no_reserved_attributes(
@@ -600,14 +598,7 @@ class ChromaDBStore(BaseStore):
                 existing_id for existing_id in existing_ids if existing_id not in ids
             ]
             if stale_ids:
-                try:
-                    self.collection.delete(ids=stale_ids)
-                except Exception as error:
-                    logger.warning(
-                        "Failed to delete stale Chroma chunk ids for origin %s: %s",
-                        document.origin,
-                        error,
-                    )
+                self.collection.delete(ids=stale_ids)
             current_document = MarkdownDocument(
                 id=document.id,
                 origin=document.origin,
@@ -908,65 +899,44 @@ class ChromaDBStore(BaseStore):
     ) -> MarkdownDocument:
         chunk_texts = list(existing.get("documents") or [])
         chunk_metadatas = list(existing.get("metadatas") or [])
-        chunk_rows_source = list(zip(chunk_texts, chunk_metadatas, strict=False))
-
-        doc_id = None
-        for metadata in chunk_metadatas:
-            if metadata and metadata.get("doc_id"):
-                doc_id = str(metadata["doc_id"])
-                break
-        if doc_id is None:
+        doc_ids = {
+            str(metadata["doc_id"])
+            for metadata in chunk_metadatas
+            if metadata and metadata.get("doc_id")
+        }
+        if not doc_ids:
             raise ValueError(
                 f"Corrupted Chroma store for origin '{origin}': missing required doc_id in chunk metadata"
             )
-
-        scoped_rows = [
-            (chunk_text, metadata or {})
-            for chunk_text, metadata in chunk_rows_source
-            if metadata and str(metadata.get("doc_id")) == doc_id
-        ]
-        if not scoped_rows:
+        if len(doc_ids) != 1:
             raise ValueError(
-                f"Corrupted Chroma store for origin '{origin}': no chunks found for doc_id '{doc_id}'"
+                f"Corrupted Chroma store for origin '{origin}': multiple doc_id values found"
             )
-        scoped_chunk_texts = [chunk_text for chunk_text, _ in scoped_rows]
-        scoped_chunk_metadatas = [metadata for _, metadata in scoped_rows]
+        doc_id = next(iter(doc_ids))
 
-        content = None
-        for metadata in scoped_chunk_metadatas:
+        content: str | None = None
+        for metadata in chunk_metadatas:
             if metadata and metadata.get(_CONTENT_TEXT_METADATA_KEY):
                 content = metadata[_CONTENT_TEXT_METADATA_KEY]
                 break
         if content is None:
-            if not scoped_chunk_texts:
-                content = ""
-            else:
-                max_end = 0
-                for metadata in scoped_chunk_metadatas:
-                    if metadata and metadata.get("end_index") is not None:
-                        max_end = max(max_end, int(metadata["end_index"]))
-                if max_end == 0:
-                    content = "\n\n".join(scoped_chunk_texts)
-                else:
-                    chars = [" "] * max_end
-                    for chunk_text, metadata in zip(
-                        scoped_chunk_texts, scoped_chunk_metadatas, strict=False
-                    ):
-                        if not metadata:
-                            continue
-                        start = int(metadata.get("start_index", 0))
-                        end = int(metadata.get("end_index", start + len(chunk_text)))
-                        expected_len = max(0, end - start)
-                        value = chunk_text[:expected_len]
-                        chars[start : start + len(value)] = list(value)
-                    content = "".join(chars)
+            raise ValueError(
+                f"Corrupted Chroma store for origin '{origin}': missing required {_CONTENT_TEXT_METADATA_KEY} in chunk metadata"
+            )
 
         chunk_rows: list[tuple[int, int, int, Chunk]] = []
         document_attributes: dict[str, Any] = {}
         for idx, (chunk_text, metadata) in enumerate(
-            zip(scoped_chunk_texts, scoped_chunk_metadatas, strict=False)
+            zip(chunk_texts, chunk_metadatas, strict=False)
         ):
-            metadata = metadata or {}
+            if metadata is None:
+                raise ValueError(
+                    f"Corrupted Chroma store for origin '{origin}': missing chunk metadata"
+                )
+            if str(metadata.get("doc_id")) != doc_id:
+                raise ValueError(
+                    f"Corrupted Chroma store for origin '{origin}': inconsistent doc_id in chunk metadata"
+                )
             chunk_id = int(metadata.get("chunk_id", idx))
             start_index = int(metadata.get("start_index", 0))
             end_index = int(metadata.get("end_index", start_index + len(chunk_text)))
