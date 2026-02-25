@@ -1886,6 +1886,80 @@ def test_openai_store_insert_unchanged_returns_stable_snapshot_id():
     assert fake_vector_store_files.deleted_ids == []
 
 
+def test_openai_store_insert_unchanged_skips_with_multiple_managed_files():
+    content = "hello world"
+    content_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
+
+    class FakeVectorStoreFiles:
+        def __init__(self):
+            self.deleted_ids = []
+            self.upload_calls = []
+            self.page = _SinglePage(
+                [
+                    SimpleNamespace(
+                        id="file_old_1",
+                        created_at=1,
+                        filename="doc.md",
+                        attributes={
+                            "_raghilda_origin": "doc",
+                            "_raghilda_content_hash": content_hash,
+                            "tenant": "new",
+                        },
+                    ),
+                    SimpleNamespace(
+                        id="file_old_2",
+                        created_at=2,
+                        filename="doc.md",
+                        attributes={
+                            "_raghilda_origin": "doc",
+                            "_raghilda_content_hash": content_hash,
+                            "tenant": "new",
+                        },
+                    ),
+                ]
+            )
+
+        def list(self, **kwargs):
+            return self.page
+
+        def delete(self, file_id, **kwargs):
+            self.deleted_ids.append(file_id)
+            return SimpleNamespace(id=file_id, deleted=True)
+
+        def upload_and_poll(self, **kwargs):
+            self.upload_calls.append(kwargs)
+            return SimpleNamespace(id="file_new")
+
+    class FakeFiles:
+        def content(self, file_id):
+            assert file_id == "file_old_1"
+            return SimpleNamespace(content=content.encode("utf-8"))
+
+    fake_vector_store_files = FakeVectorStoreFiles()
+    fake_client = SimpleNamespace(
+        vector_stores=SimpleNamespace(files=fake_vector_store_files),
+        files=FakeFiles(),
+    )
+    store = OpenAIStore(
+        client=fake_client,
+        store_id="vs_test",
+        attributes={"tenant": str},
+    )
+
+    result = store.insert(
+        MarkdownDocument(
+            origin="doc",
+            content=content,
+            attributes={"tenant": "new"},
+        )
+    )
+
+    assert result.action == "skipped"
+    assert result.document.id == "file_old_1"
+    assert fake_vector_store_files.upload_calls == []
+    assert fake_vector_store_files.deleted_ids == []
+
+
 def test_openai_store_insert_rejects_too_many_user_attributes():
     class FakeVectorStoreFiles:
         def __init__(self):

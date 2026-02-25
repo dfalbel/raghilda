@@ -326,23 +326,20 @@ class OpenAIStore(BaseStore):
                 )
             ]
             replaced_document = None
-            if existing_files and skip_if_unchanged and len(existing_files) == 1:
-                if matching_files:
-                    current_document = self._snapshot_document_from_file(
-                        matching_files[0]
+            if existing_files and skip_if_unchanged and matching_files:
+                current_document = self._snapshot_document_from_file(matching_files[0])
+                if current_document is None:
+                    current_document = MarkdownDocument(
+                        id=document.id,
+                        origin=document.origin,
+                        content=document.content,
+                        chunks=document.chunks,
+                        attributes=document.attributes,
                     )
-                    if current_document is None:
-                        current_document = MarkdownDocument(
-                            id=document.id,
-                            origin=document.origin,
-                            content=document.content,
-                            chunks=document.chunks,
-                            attributes=document.attributes,
-                        )
-                    return InsertResult(
-                        action="skipped",
-                        document=current_document,
-                    )
+                return InsertResult(
+                    action="skipped",
+                    document=current_document,
+                )
 
             if existing_files:
                 replaced_document = self._snapshot_document_from_file(
