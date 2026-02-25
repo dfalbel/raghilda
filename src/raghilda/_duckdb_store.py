@@ -467,7 +467,6 @@ class DuckDBStore(BaseStore):
 
             action = "inserted"
             replaced_document: MarkdownDocument | None = None
-            result_doc_id = document.origin
             if existing is not None:
                 action = "replaced"
                 doc_id = existing["doc_id"]
@@ -501,6 +500,7 @@ class DuckDBStore(BaseStore):
                     pass
                 raise
 
+            result_doc_id = str(doc_row["doc_id"][0])
             current_document = self._load_document_snapshot(
                 doc_id=result_doc_id,
                 origin=document.origin,

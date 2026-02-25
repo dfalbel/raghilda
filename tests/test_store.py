@@ -1253,6 +1253,58 @@ class TestDuckDBStore:
             "topic": None,
         }
 
+    def test_insert_replaced_snapshot_uses_existing_doc_id_for_legacy_rows(self):
+        store = DuckDBStore.create(
+            location=":memory:",
+            embed=None,
+            overwrite=True,
+            attributes={"tenant": str},
+        )
+
+        legacy_doc_id = "legacy-doc-id"
+        store.con.execute(
+            "INSERT INTO documents (doc_id, origin, text) VALUES (?, ?, ?)",
+            [legacy_doc_id, "legacy-origin", "alpha"],
+        )
+        store.con.execute(
+            """
+            INSERT INTO embeddings (
+                doc_id,
+                start_index,
+                end_index,
+                chunk_text,
+                context,
+                tenant
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            [legacy_doc_id, 0, 5, "alpha", None, "old"],
+        )
+
+        updated = MarkdownDocument(
+            origin="legacy-origin",
+            content="alpha beta",
+            attributes={"tenant": "new"},
+        )
+        updated.chunks = [
+            MarkdownChunk(
+                start_index=0,
+                end_index=10,
+                text="alpha beta",
+                token_count=10,
+            )
+        ]
+
+        replaced = store.upsert(updated, skip_if_unchanged=False)
+        assert replaced.action == "replaced"
+        assert replaced.document.chunks is not None
+        assert [chunk.text for chunk in replaced.document.chunks] == ["alpha beta"]
+        assert replaced.document.attributes == {"tenant": "new"}
+        assert replaced.replaced_document is not None
+        assert [chunk.text for chunk in replaced.replaced_document.chunks or []] == [
+            "alpha"
+        ]
+        assert replaced.replaced_document.attributes == {"tenant": "old"}
+
     def test_insert_missing_required_attribute_fails(self):
         store = DuckDBStore.create(
             location=":memory:",

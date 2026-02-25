@@ -838,14 +838,13 @@ class ChromaDBStore(BaseStore):
     ) -> list[tuple[Any, ...]]:
         signatures: list[tuple[Any, ...]] = []
         attribute_columns = list(self.metadata.attributes_schema)
-        for idx, chunk in enumerate(document.chunks or []):
+        for chunk in document.chunks or []:
             resolved_attributes = merge_attribute_values(
                 attributes_spec=self.metadata.attributes_spec,
                 sources=[document.attributes, chunk.attributes],
             )
             signatures.append(
                 (
-                    idx,
                     chunk.start_index,
                     chunk.end_index,
                     chunk.context,
@@ -854,7 +853,7 @@ class ChromaDBStore(BaseStore):
                     *[resolved_attributes.get(col) for col in attribute_columns],
                 )
             )
-        signatures.sort(key=lambda row: row[0])
+        signatures.sort(key=self._chunk_signature_sort_key)
         return signatures
 
     def _existing_chunk_signature(
@@ -864,14 +863,11 @@ class ChromaDBStore(BaseStore):
         chunk_metadatas = list(existing.get("metadatas") or [])
         attribute_columns = list(self.metadata.attributes_schema)
         signatures: list[tuple[Any, ...]] = []
-        for idx, (chunk_text, metadata) in enumerate(
-            zip(chunk_texts, chunk_metadatas, strict=False)
-        ):
+        for chunk_text, metadata in zip(chunk_texts, chunk_metadatas, strict=False):
             metadata = metadata or {}
             start_index = int(metadata.get("start_index", 0))
             signatures.append(
                 (
-                    idx,
                     start_index,
                     int(metadata.get("end_index", start_index + len(chunk_text))),
                     metadata.get("context"),
@@ -880,8 +876,11 @@ class ChromaDBStore(BaseStore):
                     *[metadata.get(col) for col in attribute_columns],
                 )
             )
-        signatures.sort(key=lambda row: row[0])
+        signatures.sort(key=self._chunk_signature_sort_key)
         return signatures
+
+    def _chunk_signature_sort_key(self, row: tuple[Any, ...]) -> tuple[str, ...]:
+        return tuple(f"{type(value).__name__}:{value!r}" for value in row)
 
     def _snapshot_document_from_existing(
         self, existing: dict[str, Any], *, origin: str

@@ -220,6 +220,56 @@ def test_insert_unchanged_preserves_document_attributes():
     assert second.document.attributes == {"tenant": "docs"}
 
 
+def test_insert_same_content_skips_when_existing_chunks_returned_in_reverse_order(
+    monkeypatch,
+):
+    store = ChromaDBStore.create(
+        location=":memory:",
+        embed=DummyEmbeddingFunction(),
+        name="test_store_skip_reordered_existing",
+        overwrite=True,
+    )
+    content = "hello world"
+    doc = MarkdownDocument(origin="same-origin", content=content)
+    doc.chunks = [
+        MarkdownChunk(
+            start_index=0,
+            end_index=5,
+            text=content[:5],
+            token_count=5,
+        ),
+        MarkdownChunk(
+            start_index=6,
+            end_index=11,
+            text=content[6:],
+            token_count=5,
+        ),
+    ]
+    store.upsert(doc)
+
+    original_get = store.collection.get
+
+    def reverse_origin_rows(*args, **kwargs):
+        result = original_get(*args, **kwargs)
+        if kwargs.get("where") != {"origin": "same-origin"}:
+            return result
+
+        ids = list(result.get("ids") or [])
+        documents = list(result.get("documents") or [])
+        metadatas = list(result.get("metadatas") or [])
+        order = list(reversed(range(len(ids))))
+        result["ids"] = [ids[idx] for idx in order]
+        result["documents"] = [documents[idx] for idx in order]
+        result["metadatas"] = [metadatas[idx] for idx in order]
+        return result
+
+    monkeypatch.setattr(store.collection, "get", reverse_origin_rows)
+
+    skipped = store.upsert(doc)
+    assert skipped.action == "skipped"
+    assert [chunk.text for chunk in skipped.document.chunks or []] == ["hello", "world"]
+
+
 def test_insert_result_document_includes_merged_chunk_attributes():
     store = ChromaDBStore.create(
         location=":memory:",
