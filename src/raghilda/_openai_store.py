@@ -370,11 +370,22 @@ class OpenAIStore(BaseStore):
             uploaded_file_id = getattr(uploaded_file, "id", None)
             if uploaded_file_id is None:
                 raise ValueError("OpenAI upload response missing file id.")
-            for vector_store_file in existing_files:
-                self.client.vector_stores.files.delete(
-                    file_id=vector_store_file.id,
-                    vector_store_id=self.store_id,
-                )
+            if existing_files:
+                try:
+                    for vector_store_file in existing_files:
+                        self.client.vector_stores.files.delete(
+                            file_id=vector_store_file.id,
+                            vector_store_id=self.store_id,
+                        )
+                except Exception:
+                    try:
+                        self.client.vector_stores.files.delete(
+                            file_id=uploaded_file_id,
+                            vector_store_id=self.store_id,
+                        )
+                    except Exception:
+                        pass
+                    raise
             current_document = MarkdownDocument(
                 origin=document.origin,
                 content=document.content,

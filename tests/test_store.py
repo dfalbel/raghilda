@@ -2353,8 +2353,116 @@ def test_openai_store_insert_raises_when_old_file_delete_fails():
                 attributes={"tenant": "new"},
             )
         )
-    assert fake_vector_store_files.deleted_ids == ["file_old"]
+    assert fake_vector_store_files.deleted_ids == ["file_old", "file_new"]
     assert len(fake_vector_store_files.upload_calls) == 1
+
+
+def test_openai_store_insert_rolls_back_uploaded_file_when_old_file_delete_fails():
+    old_content = "hello world"
+    new_content = "hello world updated"
+    old_hash = hashlib.sha256(old_content.encode("utf-8")).hexdigest()
+
+    class FakeVectorStoreFiles:
+        def __init__(self):
+            self.deleted_ids = []
+            self.upload_calls = []
+            self._next_id = 1
+            self._old_delete_failed_once = False
+            self.files = [
+                {
+                    "id": "file_old",
+                    "created_at": 1,
+                    "filename": "doc.md",
+                    "attributes": {
+                        "_raghilda_origin": "doc",
+                        "_raghilda_content_hash": old_hash,
+                        "tenant": "old",
+                    },
+                }
+            ]
+
+        def list(self, **kwargs):
+            snapshot = [
+                SimpleNamespace(
+                    id=file["id"],
+                    created_at=file["created_at"],
+                    filename=file["filename"],
+                    attributes=dict(file["attributes"]),
+                )
+                for file in self.files
+            ]
+            return _SinglePage(snapshot)
+
+        def delete(self, file_id, **kwargs):
+            self.deleted_ids.append(file_id)
+            if file_id == "file_old" and not self._old_delete_failed_once:
+                self._old_delete_failed_once = True
+                request = httpx.Request(
+                    "DELETE",
+                    f"https://api.openai.com/v1/vector_stores/{kwargs.get('vector_store_id')}/files/{file_id}",
+                )
+                raise openai.APIConnectionError(request=request)
+
+            self.files = [file for file in self.files if file["id"] != file_id]
+            return SimpleNamespace(id=file_id, deleted=True)
+
+        def upload_and_poll(self, **kwargs):
+            file_id = f"file_new_{self._next_id}"
+            self._next_id += 1
+            self.files.append(
+                {
+                    "id": file_id,
+                    "created_at": self._next_id,
+                    "filename": kwargs["file"][0],
+                    "attributes": dict(kwargs.get("attributes", {})),
+                }
+            )
+            self.upload_calls.append(kwargs)
+            return SimpleNamespace(id=file_id)
+
+    class FakeFiles:
+        def content(self, file_id):
+            assert file_id == "file_old"
+            return SimpleNamespace(content=old_content.encode("utf-8"))
+
+    fake_vector_store_files = FakeVectorStoreFiles()
+    fake_client = SimpleNamespace(
+        vector_stores=SimpleNamespace(files=fake_vector_store_files),
+        files=FakeFiles(),
+    )
+    store = OpenAIStore(
+        client=fake_client,
+        store_id="vs_test",
+        attributes={"tenant": str},
+    )
+
+    with pytest.raises(openai.APIConnectionError):
+        store.upsert(
+            MarkdownDocument(
+                origin="doc",
+                content=new_content,
+                attributes={"tenant": "new"},
+            )
+        )
+
+    result = store.upsert(
+        MarkdownDocument(
+            origin="doc",
+            content=new_content,
+            attributes={"tenant": "new"},
+        )
+    )
+
+    assert result.action == "replaced"
+    managed_doc_files = [
+        file
+        for file in fake_vector_store_files.files
+        if file["attributes"].get("_raghilda_origin") == "doc"
+    ]
+    assert len(managed_doc_files) == 1
+    assert managed_doc_files[0]["id"] == "file_new_2"
+    assert fake_vector_store_files.deleted_ids == ["file_old", "file_new_1", "file_old"]
+    assert len(fake_vector_store_files.upload_calls) == 2
 
 
 def test_openai_store_connect_restores_metadata_schema_with_mocked_client(
