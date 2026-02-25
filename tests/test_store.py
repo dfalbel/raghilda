@@ -1902,6 +1902,119 @@ def test_openai_store_insert_keeps_existing_file_when_upload_fails():
     assert fake_vector_store_files.deleted_ids == []
 
 
+def test_openai_store_insert_serializes_replacement_for_same_origin():
+    import threading
+
+    old_content = "hello world"
+    old_hash = hashlib.sha256(old_content.encode("utf-8")).hexdigest()
+    first_two_list_calls = threading.Barrier(2)
+    state_lock = threading.Lock()
+
+    class FakeVectorStoreFiles:
+        def __init__(self):
+            self.deleted_ids = []
+            self.upload_calls = []
+            self.files = [
+                {
+                    "id": "file_old",
+                    "created_at": 1,
+                    "filename": "doc.md",
+                    "attributes": {
+                        "_raghilda_origin": "doc",
+                        "_raghilda_content_hash": old_hash,
+                        "tenant": "old",
+                    },
+                }
+            ]
+            self._next_id = 2
+            self._list_calls = 0
+
+        def list(self, **kwargs):
+            with state_lock:
+                self._list_calls += 1
+                snapshot = [
+                    SimpleNamespace(
+                        id=file["id"],
+                        created_at=file["created_at"],
+                        filename=file["filename"],
+                        attributes=dict(file["attributes"]),
+                    )
+                    for file in self.files
+                ]
+            if self._list_calls <= 2:
+                try:
+                    first_two_list_calls.wait(timeout=0.2)
+                except threading.BrokenBarrierError:
+                    pass
+            return _SinglePage(snapshot)
+
+        def delete(self, file_id, **kwargs):
+            with state_lock:
+                self.deleted_ids.append(file_id)
+                self.files = [file for file in self.files if file["id"] != file_id]
+            return SimpleNamespace(id=file_id, deleted=True)
+
+        def upload_and_poll(self, **kwargs):
+            with state_lock:
+                file_id = f"file_new_{self._next_id}"
+                self._next_id += 1
+                self.files.append(
+                    {
+                        "id": file_id,
+                        "created_at": self._next_id,
+                        "filename": kwargs["file"][0],
+                        "attributes": dict(kwargs.get("attributes", {})),
+                    }
+                )
+                self.upload_calls.append(kwargs)
+            return SimpleNamespace(id=file_id)
+
+    class FakeFiles:
+        def content(self, file_id):
+            return SimpleNamespace(content=old_content.encode("utf-8"))
+
+    fake_vector_store_files = FakeVectorStoreFiles()
+    fake_client = SimpleNamespace(
+        vector_stores=SimpleNamespace(files=fake_vector_store_files),
+        files=FakeFiles(),
+    )
+    store = OpenAIStore(
+        client=fake_client,
+        store_id="vs_test",
+        attributes={"tenant": str},
+    )
+
+    errors: list[Exception] = []
+
+    def do_insert(content: str):
+        try:
+            store.insert(
+                MarkdownDocument(
+                    origin="doc",
+                    content=content,
+                    attributes={"tenant": "new"},
+                ),
+                skip_if_unchanged=False,
+            )
+        except Exception as error:
+            errors.append(error)
+
+    t1 = threading.Thread(target=do_insert, args=("content thread one",))
+    t2 = threading.Thread(target=do_insert, args=("content thread two",))
+    t1.start()
+    t2.start()
+    t1.join()
+    t2.join()
+
+    assert errors == []
+    managed = [
+        file
+        for file in fake_vector_store_files.files
+        if file["attributes"].get("_raghilda_origin") == "doc"
+    ]
+    assert len(managed) == 1
+
+
 def test_openai_store_insert_succeeds_when_old_file_delete_fails():
     old_content = "hello world"
     new_content = "hello world updated"

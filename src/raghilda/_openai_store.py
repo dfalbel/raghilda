@@ -2,6 +2,8 @@ import openai
 import json
 import hashlib
 import logging
+import threading
+from contextlib import contextmanager
 from ._store import BaseStore, InsertResult
 from .chunk import MarkdownChunk, RetrievedChunk, Metric
 from .document import Document, MarkdownDocument
@@ -276,6 +278,9 @@ class OpenAIStore(BaseStore):
 
         self.attributes_spec = resolved_spec
         self.attributes_schema = resolved_schema
+        self._origin_locks: dict[str, threading.Lock] = {}
+        self._origin_lock_ref_counts: dict[str, int] = {}
+        self._origin_locks_guard = threading.Lock()
 
     def insert(
         self,
@@ -304,92 +309,119 @@ class OpenAIStore(BaseStore):
         user_file_attributes = _normalize_openai_attributes(resolved_attributes)
         _ensure_openai_user_attribute_limit(len(user_file_attributes))
 
-        content_hash = hashlib.sha256(document.content.encode("utf-8")).hexdigest()
-        existing_files = [
-            vector_store_file
-            for vector_store_file in self._iter_vector_store_files()
-            if self._matches_existing_origin(vector_store_file, document.origin)
-        ]
-        matching_files = [
-            vector_store_file
-            for vector_store_file in existing_files
-            if self._openai_file_matches_insert_request(
-                vector_store_file=vector_store_file,
-                expected_content_hash=content_hash,
-                expected_user_attributes=user_file_attributes,
-            )
-        ]
-        replaced_document = None
-        if existing_files and skip_if_unchanged and len(existing_files) == 1:
-            if matching_files:
-                current_document = self._snapshot_document_from_file(matching_files[0])
-                if current_document is None:
-                    current_document = MarkdownDocument(
-                        id=document.id,
-                        origin=document.origin,
-                        content=document.content,
-                        chunks=document.chunks,
-                        attributes=document.attributes,
+        with self._origin_lock(document.origin):
+            content_hash = hashlib.sha256(document.content.encode("utf-8")).hexdigest()
+            existing_files = [
+                vector_store_file
+                for vector_store_file in self._iter_vector_store_files()
+                if self._matches_existing_origin(vector_store_file, document.origin)
+            ]
+            matching_files = [
+                vector_store_file
+                for vector_store_file in existing_files
+                if self._openai_file_matches_insert_request(
+                    vector_store_file=vector_store_file,
+                    expected_content_hash=content_hash,
+                    expected_user_attributes=user_file_attributes,
+                )
+            ]
+            replaced_document = None
+            if existing_files and skip_if_unchanged and len(existing_files) == 1:
+                if matching_files:
+                    current_document = self._snapshot_document_from_file(
+                        matching_files[0]
                     )
-                return InsertResult(
-                    action="skipped",
-                    document=current_document,
+                    if current_document is None:
+                        current_document = MarkdownDocument(
+                            id=document.id,
+                            origin=document.origin,
+                            content=document.content,
+                            chunks=document.chunks,
+                            attributes=document.attributes,
+                        )
+                    return InsertResult(
+                        action="skipped",
+                        document=current_document,
+                    )
+
+            if existing_files:
+                replaced_document = self._snapshot_document_from_file(
+                    max(
+                        existing_files,
+                        key=lambda vector_store_file: getattr(
+                            vector_store_file, "created_at", 0
+                        ),
+                    )
                 )
 
-        if existing_files:
-            replaced_document = self._snapshot_document_from_file(
-                max(
-                    existing_files,
-                    key=lambda vector_store_file: getattr(
-                        vector_store_file, "created_at", 0
-                    ),
+            file_attributes = {
+                **user_file_attributes,
+                _INTERNAL_ORIGIN_ATTRIBUTE_KEY: document.origin,
+                _INTERNAL_CONTENT_HASH_ATTRIBUTE_KEY: content_hash,
+            }
+
+            file = (document.origin + ".md", document.content.encode("utf-8"))
+            if file_attributes:
+                self.client.vector_stores.files.upload_and_poll(
+                    file=file,
+                    vector_store_id=self.store_id,
+                    attributes=file_attributes,
                 )
-            )
-
-        file_attributes = {
-            **user_file_attributes,
-            _INTERNAL_ORIGIN_ATTRIBUTE_KEY: document.origin,
-            _INTERNAL_CONTENT_HASH_ATTRIBUTE_KEY: content_hash,
-        }
-
-        file = (document.origin + ".md", document.content.encode("utf-8"))
-        if file_attributes:
-            self.client.vector_stores.files.upload_and_poll(
-                file=file,
-                vector_store_id=self.store_id,
-                attributes=file_attributes,
-            )
-        else:
-            self.client.vector_stores.files.upload_and_poll(
-                file=file,
-                vector_store_id=self.store_id,
-            )
-        for vector_store_file in existing_files:
-            try:
-                self.client.vector_stores.files.delete(
-                    file_id=vector_store_file.id,
+            else:
+                self.client.vector_stores.files.upload_and_poll(
+                    file=file,
                     vector_store_id=self.store_id,
                 )
-            except openai.APIError as error:
-                logger.warning(
-                    "Failed to delete stale OpenAI file %s for origin %s in store %s: %s",
-                    getattr(vector_store_file, "id", "<unknown>"),
-                    document.origin,
-                    self.store_id,
-                    error,
-                )
-        current_document = MarkdownDocument(
-            id=document.id,
-            origin=document.origin,
-            content=document.content,
-            chunks=document.chunks,
-            attributes=document.attributes,
-        )
-        return InsertResult(
-            action="replaced" if existing_files else "inserted",
-            document=current_document,
-            replaced_document=replaced_document,
-        )
+            for vector_store_file in existing_files:
+                try:
+                    self.client.vector_stores.files.delete(
+                        file_id=vector_store_file.id,
+                        vector_store_id=self.store_id,
+                    )
+                except openai.APIError as error:
+                    logger.warning(
+                        "Failed to delete stale OpenAI file %s for origin %s in store %s: %s",
+                        getattr(vector_store_file, "id", "<unknown>"),
+                        document.origin,
+                        self.store_id,
+                        error,
+                    )
+            current_document = MarkdownDocument(
+                id=document.id,
+                origin=document.origin,
+                content=document.content,
+                chunks=document.chunks,
+                attributes=document.attributes,
+            )
+            return InsertResult(
+                action="replaced" if existing_files else "inserted",
+                document=current_document,
+                replaced_document=replaced_document,
+            )
+
+    @contextmanager
+    def _origin_lock(self, origin: str):
+        with self._origin_locks_guard:
+            lock = self._origin_locks.get(origin)
+            if lock is None:
+                lock = threading.Lock()
+                self._origin_locks[origin] = lock
+            self._origin_lock_ref_counts[origin] = (
+                self._origin_lock_ref_counts.get(origin, 0) + 1
+            )
+
+        try:
+            with lock:
+                yield
+        finally:
+            with self._origin_locks_guard:
+                remaining = self._origin_lock_ref_counts.get(origin, 1) - 1
+                if remaining <= 0:
+                    self._origin_lock_ref_counts.pop(origin, None)
+                    if self._origin_locks.get(origin) is lock:
+                        self._origin_locks.pop(origin, None)
+                else:
+                    self._origin_lock_ref_counts[origin] = remaining
 
     def _openai_file_matches_insert_request(
         self,
