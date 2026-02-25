@@ -590,6 +590,23 @@ class TestDuckDBStore:
             assert isinstance(chunk, RetrievedDuckDBMarkdownChunk)
             assert chunk.text is not None
 
+    def test_retrieve_bm25_returns_chunk_text_not_document_slice(self, store):
+        doc = MarkdownDocument(origin="bm25-text-source", content="alpha beta gamma")
+        doc.chunks = [
+            MarkdownChunk(
+                start_index=0,
+                end_index=5,
+                text="zeta",
+                token_count=4,
+            )
+        ]
+        store.insert(doc)
+        store.build_index("bm25")
+
+        results = store.retrieve_bm25("zeta", top_k=1)
+        assert len(results) == 1
+        assert results[0].text == "zeta"
+
     @pytest.mark.parametrize("embed", [EmbeddingOpenAI()], indirect=True)
     def test_retrieve(self, store_with_docs):
         store_with_docs.build_index()
