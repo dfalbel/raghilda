@@ -3,6 +3,7 @@ import hashlib
 import json
 from types import SimpleNamespace
 from typing import Annotated, Any, cast
+import duckdb
 import httpx
 import openai
 import pytest
@@ -2925,3 +2926,49 @@ def test_connect(tmp_path):
     results = store2.retrieve("hello", top_k=1)
     assert len(results) >= 1
     assert results[0].text == "hello"
+
+
+def test_connect_fails_fast_when_embeddings_table_lacks_chunk_text(tmp_path):
+    db_path = tmp_path / "missing_chunk_text.db"
+    con = duckdb.connect(str(db_path))
+    con.execute(
+        """
+        CREATE TABLE metadata (
+            name VARCHAR,
+            title VARCHAR,
+            embed_config VARCHAR,
+            attributes_schema_json VARCHAR
+        )
+        """
+    )
+    con.execute(
+        "INSERT INTO metadata VALUES (?, ?, ?, ?)",
+        ["test", "Test", None, json.dumps({})],
+    )
+    con.execute(
+        """
+        CREATE TABLE documents (
+            doc_id VARCHAR,
+            origin VARCHAR,
+            text VARCHAR
+        )
+        """
+    )
+    con.execute(
+        """
+        CREATE TABLE embeddings (
+            doc_id VARCHAR,
+            chunk_id INTEGER,
+            start_index INTEGER,
+            end_index INTEGER,
+            context VARCHAR
+        )
+        """
+    )
+    con.close()
+
+    with pytest.raises(
+        ValueError,
+        match="table 'embeddings' missing required columns: chunk_text",
+    ):
+        DuckDBStore.connect(str(db_path))

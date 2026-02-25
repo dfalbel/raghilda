@@ -395,6 +395,11 @@ class DuckDBStore(BaseStore):
     ):
         self.con = con
         self.metadata = metadata
+        _validate_required_schema(
+            con=self.con,
+            attributes_schema=self.metadata.attributes_schema,
+            require_embedding=self.metadata.embed is not None,
+        )
         self._db_lock = threading.Lock()
 
     def upsert(
@@ -1271,6 +1276,69 @@ def _check_is_raghilda_con(con: duckdb.DuckDBPyConnection):
 
     if "metadata" not in tables:
         raise ValueError("Not a valid Raghilda database connection")
+
+
+def _validate_required_schema(
+    con: duckdb.DuckDBPyConnection,
+    *,
+    attributes_schema: Mapping[str, AttributeType],
+    require_embedding: bool,
+) -> None:
+    _assert_table_has_columns(
+        con,
+        table="metadata",
+        required_columns={"name", "title", "embed_config", "attributes_schema_json"},
+    )
+    _assert_table_has_columns(
+        con,
+        table="documents",
+        required_columns={"doc_id", "origin", "text"},
+    )
+    required_embeddings_columns = {
+        "doc_id",
+        "chunk_id",
+        "start_index",
+        "end_index",
+        "chunk_text",
+        "context",
+        *attributes_schema.keys(),
+    }
+    if require_embedding:
+        required_embeddings_columns.add("embedding")
+    _assert_table_has_columns(
+        con,
+        table="embeddings",
+        required_columns=required_embeddings_columns,
+    )
+
+
+def _assert_table_has_columns(
+    con: duckdb.DuckDBPyConnection,
+    *,
+    table: str,
+    required_columns: set[str],
+) -> None:
+    columns = _table_columns(con, table=table)
+    missing_columns = sorted(required_columns - columns)
+    if missing_columns:
+        missing = ", ".join(missing_columns)
+        raise ValueError(
+            f"Invalid DuckDB store schema: table '{table}' missing required columns: {missing}"
+        )
+
+
+def _table_columns(con: duckdb.DuckDBPyConnection, *, table: str) -> set[str]:
+    try:
+        rows = con.execute(f"PRAGMA table_info('{table}')").fetchall()
+    except duckdb.Error as exc:
+        raise ValueError(
+            f"Invalid DuckDB store schema: missing required table '{table}'"
+        ) from exc
+    if not rows:
+        raise ValueError(
+            f"Invalid DuckDB store schema: missing required table '{table}'"
+        )
+    return {str(row[1]) for row in rows}
 
 
 def _duckdb_append(con: duckdb.DuckDBPyConnection, table: str, data):
