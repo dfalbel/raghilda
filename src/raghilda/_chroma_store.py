@@ -891,7 +891,7 @@ class ChromaDBStore(BaseStore):
 
         content: str | None = None
         for metadata in chunk_metadatas:
-            if metadata and metadata.get(_CONTENT_TEXT_METADATA_KEY):
+            if metadata and _CONTENT_TEXT_METADATA_KEY in metadata:
                 content = metadata[_CONTENT_TEXT_METADATA_KEY]
                 break
         if content is None:

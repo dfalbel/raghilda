@@ -413,6 +413,31 @@ def test_upsert_raises_when_existing_metadata_missing_content_text(monkeypatch):
         store.upsert(updated, skip_if_unchanged=False)
 
 
+def test_upsert_accepts_existing_empty_content_text_metadata():
+    store = ChromaDBStore.create(
+        location=":memory:",
+        embed=DummyEmbeddingFunction(),
+        name="test_store_empty_content_text",
+        overwrite=True,
+    )
+
+    original = MarkdownDocument(origin="same-origin", content="")
+    original.chunks = [
+        MarkdownChunk(
+            start_index=0,
+            end_index=0,
+            text="",
+            token_count=0,
+        )
+    ]
+
+    store.upsert(original)
+    result = store.upsert(original)
+
+    assert result.action == "skipped"
+    assert result.document.content == ""
+
+
 def test_insert_same_origin_concurrent_updates_do_not_leave_stale_chunks(monkeypatch):
     store = ChromaDBStore.create(
         location=":memory:",
