@@ -711,6 +711,56 @@ class TestDuckDBStore:
         assert len(results) == 1
         assert results[0].context == "h1"
         assert results[0].attributes == {"topic": ["first", "second"]}
+        assert len(results[0].chunk_ids) == 2
+        assert all(isinstance(chunk_id, int) for chunk_id in results[0].chunk_ids)
+
+    def test_retrieve_supports_excluding_seen_chunk_ids(self, store):
+        content = "alpha one alpha two alpha three"
+        doc = MarkdownDocument(origin="chunk-id-filter", content=content)
+        doc.chunks = [
+            MarkdownChunk(
+                start_index=0,
+                end_index=9,
+                text=content[0:9],
+                token_count=9,
+            ),
+            MarkdownChunk(
+                start_index=10,
+                end_index=19,
+                text=content[10:19],
+                token_count=9,
+            ),
+            MarkdownChunk(
+                start_index=20,
+                end_index=31,
+                text=content[20:31],
+                token_count=11,
+            ),
+        ]
+        store.insert(doc)
+        store.build_index("bm25")
+
+        first_results = store.retrieve("alpha", top_k=2, deoverlap=False)
+        seen_chunk_ids = [
+            chunk_id for chunk in first_results for chunk_id in chunk.chunk_ids
+        ]
+        assert len(seen_chunk_ids) == 2
+
+        remaining_results = store.retrieve(
+            "alpha",
+            top_k=3,
+            deoverlap=False,
+            attributes_filter={
+                "type": "nin",
+                "key": "chunk_id",
+                "value": seen_chunk_ids,
+            },
+        )
+        remaining_chunk_ids = {
+            chunk_id for chunk in remaining_results for chunk_id in chunk.chunk_ids
+        }
+        assert remaining_chunk_ids
+        assert remaining_chunk_ids.isdisjoint(set(seen_chunk_ids))
 
     def test_create_store_with_attributes_schema(self):
         store = DuckDBStore.create(

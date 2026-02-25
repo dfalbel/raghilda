@@ -282,6 +282,7 @@ class RetrievedChromaDBMarkdownChunk(ChromaDBMarkdownChunk, RetrievedChunk):
         doc_id=None,
         chunk_id=None,
         metrics=None,
+        chunk_ids=None,
         attributes=None,
     ):
         super().__init__(
@@ -298,6 +299,12 @@ class RetrievedChromaDBMarkdownChunk(ChromaDBMarkdownChunk, RetrievedChunk):
         if metrics is None:
             metrics = []
         self.metrics = metrics
+        if chunk_ids is None:
+            if chunk_id is None:
+                chunk_ids = []
+            else:
+                chunk_ids = [int(chunk_id)]
+        self.chunk_ids = chunk_ids
 
 
 @dataclass
@@ -497,6 +504,8 @@ class ChromaDBStore(BaseStore):
         self._origin_locks: dict[str, threading.Lock] = {}
         self._origin_lock_ref_counts: dict[str, int] = {}
         self._origin_locks_guard = threading.Lock()
+        self._chunk_id_lock = threading.Lock()
+        self._next_chunk_id: Optional[int] = None
 
     def insert(
         self,
@@ -515,6 +524,7 @@ class ChromaDBStore(BaseStore):
 
         with self._origin_lock(document.origin):
             content_hash = hashlib.sha256(document.content.encode("utf-8")).hexdigest()
+            scoped_doc_id = f"{document.origin}:{document.id}"
 
             existing = self.collection.get(
                 where={"origin": document.origin},
@@ -554,6 +564,7 @@ class ChromaDBStore(BaseStore):
             ids = []
             chunk_attributes_records = []
             merged_document_attributes: dict[str, Any] = {}
+            assigned_chunk_ids = self._allocate_chunk_ids(len(document.chunks))
             for idx, chunk in enumerate(document.chunks):
                 resolved_attributes = merge_attribute_values(
                     attributes_spec=self.metadata.attributes_spec,
@@ -561,8 +572,8 @@ class ChromaDBStore(BaseStore):
                 )
                 ids.append(f"{document.origin}:{idx}")
                 chunk_record = {
-                    "doc_id": document.id,
-                    "chunk_id": idx,
+                    "doc_id": scoped_doc_id,
+                    "chunk_id": assigned_chunk_ids[idx],
                     "start_index": chunk.start_index,
                     "end_index": chunk.end_index,
                     "token_count": chunk.token_count,
@@ -880,7 +891,7 @@ class ChromaDBStore(BaseStore):
             start_index = int(metadata.get("start_index", 0))
             signatures.append(
                 (
-                    int(metadata.get("chunk_id", idx)),
+                    idx,
                     start_index,
                     int(metadata.get("end_index", start_index + len(chunk_text))),
                     metadata.get("context"),
@@ -950,7 +961,7 @@ class ChromaDBStore(BaseStore):
                         chars[start : start + len(value)] = list(value)
                     content = "".join(chars)
 
-        chunk_rows: list[tuple[int, Chunk]] = []
+        chunk_rows: list[tuple[int, int, int, Chunk]] = []
         document_attributes: dict[str, Any] = {}
         for idx, (chunk_text, metadata) in enumerate(
             zip(scoped_chunk_texts, scoped_chunk_metadatas, strict=False)
@@ -969,6 +980,8 @@ class ChromaDBStore(BaseStore):
                     document_attributes[key] = value
             chunk_rows.append(
                 (
+                    start_index,
+                    end_index,
                     chunk_id,
                     MarkdownChunk(
                         text=chunk_text,
@@ -981,8 +994,8 @@ class ChromaDBStore(BaseStore):
                 )
             )
 
-        chunk_rows.sort(key=lambda row: row[0])
-        chunks = [chunk for _, chunk in chunk_rows]
+        chunk_rows.sort(key=lambda row: (row[0], row[1], row[2]))
+        chunks = [chunk for _, _, _, chunk in chunk_rows]
 
         return MarkdownDocument(
             id=doc_id,
@@ -991,3 +1004,23 @@ class ChromaDBStore(BaseStore):
             chunks=chunks,
             attributes=document_attributes or None,
         )
+
+    def _allocate_chunk_ids(self, count: int) -> list[int]:
+        if count <= 0:
+            return []
+        with self._chunk_id_lock:
+            if self._next_chunk_id is None:
+                results = self.collection.get(include=["metadatas"])
+                chunk_attributes_rows = results.get("metadatas") or []
+                max_chunk_id = -1
+                for chunk_attributes in chunk_attributes_rows:
+                    if not chunk_attributes:
+                        continue
+                    value = chunk_attributes.get("chunk_id")
+                    if value is None:
+                        continue
+                    max_chunk_id = max(max_chunk_id, int(value))
+                self._next_chunk_id = max_chunk_id + 1
+            start = self._next_chunk_id
+            self._next_chunk_id += count
+            return list(range(start, start + count))

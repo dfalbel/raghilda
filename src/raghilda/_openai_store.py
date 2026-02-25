@@ -106,6 +106,7 @@ class RetrievedOpenAIMarkdownChunk(OpenAIMarkdownChunk, RetrievedChunk):
         if metrics is None:
             metrics = []
         self.metrics = metrics
+        self.chunk_ids = []
 
 
 class OpenAIStore(BaseStore):

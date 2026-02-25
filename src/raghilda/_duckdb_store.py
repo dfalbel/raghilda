@@ -117,6 +117,7 @@ class RetrievedDuckDBMarkdownChunk(DuckDBMarkdownChunk, RetrievedChunk):
         doc_id=None,
         chunk_id=None,
         metrics=None,
+        chunk_ids=None,
         attributes=None,
     ):
         # Initialize DuckDBMarkdownChunk
@@ -135,6 +136,12 @@ class RetrievedDuckDBMarkdownChunk(DuckDBMarkdownChunk, RetrievedChunk):
         if metrics is None:
             metrics = []
         self.metrics = metrics
+        if chunk_ids is None:
+            if chunk_id is None:
+                chunk_ids = []
+            else:
+                chunk_ids = [int(chunk_id)]
+        self.chunk_ids = chunk_ids
 
 
 @dataclass

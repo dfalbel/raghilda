@@ -38,6 +38,17 @@ def default_merge(target: RetrievedChunk, source: RetrievedChunk) -> None:
         target.text = target.text + source.text[overlap_len:]
     target.end_index = new_end
     target.metrics.extend(source.metrics or [])
+    target_ids = list(getattr(target, "chunk_ids", []) or [])
+    source_ids = list(getattr(source, "chunk_ids", []) or [])
+    if not target_ids and getattr(target, "chunk_id", None) is not None:
+        target_ids = [int(target.chunk_id)]  # type: ignore[attr-defined]
+    if not source_ids and getattr(source, "chunk_id", None) is not None:
+        source_ids = [int(source.chunk_id)]  # type: ignore[attr-defined]
+    if target_ids or source_ids:
+        for chunk_id in source_ids:
+            if chunk_id not in target_ids:
+                target_ids.append(chunk_id)
+        target.chunk_ids = target_ids
     _merge_attributes(target, source)
     target.token_count = len(target.text)
 

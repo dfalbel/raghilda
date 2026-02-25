@@ -147,6 +147,10 @@ class RetrievedChunk(Chunk):
     ----------
     metrics
         List of Metric objects containing retrieval scores.
+    chunk_ids
+        Backend chunk identifiers represented by this retrieved chunk.
+        For non-deoverlapped results this usually contains one id. For
+        deoverlapped chunks it may include multiple source chunk ids.
 
     Examples
     --------
@@ -170,3 +174,4 @@ class RetrievedChunk(Chunk):
     """
 
     metrics: list[Metric] = field(default_factory=list)
+    chunk_ids: list[int] = field(default_factory=list)
