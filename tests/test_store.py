@@ -581,6 +581,29 @@ class TestDuckDBStore:
         results = store_with_docs.retrieve_vss("test", top_k=5)
         assert len(results) == 5
 
+    def test_retrieve_vss_returns_chunk_text_not_document_slice(self):
+        embed = CountingEmbedding()
+        store = DuckDBStore.create(
+            location=":memory:",
+            embed=embed,
+            overwrite=True,
+            name="vss-text-source",
+        )
+        doc = MarkdownDocument(origin="vss-text-source", content="alpha beta gamma")
+        doc.chunks = [
+            MarkdownChunk(
+                start_index=0,
+                end_index=5,
+                text="zeta",
+                token_count=4,
+            )
+        ]
+        store.insert(doc)
+
+        results = store.retrieve_vss([float(len("zeta"))], top_k=1)
+        assert len(results) == 1
+        assert results[0].text == "zeta"
+
     @pytest.mark.parametrize("embed", [None, EmbeddingOpenAI()], indirect=True)
     def test_retrieve_bm25(self, store_with_docs):
         store_with_docs.build_index("bm25")
@@ -1900,6 +1923,73 @@ def test_openai_store_insert_unchanged_returns_stable_snapshot_id():
     assert second.action == "skipped"
     assert first.document.id == "file_old"
     assert second.document.id == "file_old"
+    assert fake_vector_store_files.upload_calls == []
+    assert fake_vector_store_files.deleted_ids == []
+
+
+def test_openai_store_insert_skipped_fallback_preserves_existing_file_id():
+    content = "hello world"
+    content_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
+
+    class FakeVectorStoreFiles:
+        def __init__(self):
+            self.deleted_ids = []
+            self.upload_calls = []
+            self.page = _SinglePage(
+                [
+                    SimpleNamespace(
+                        id="file_old",
+                        created_at=1,
+                        filename="doc.md",
+                        attributes={
+                            "_raghilda_origin": "doc",
+                            "_raghilda_content_hash": content_hash,
+                            "tenant": "new",
+                        },
+                    )
+                ]
+            )
+
+        def list(self, **kwargs):
+            return self.page
+
+        def delete(self, file_id, **kwargs):
+            self.deleted_ids.append(file_id)
+            return SimpleNamespace(id=file_id, deleted=True)
+
+        def upload_and_poll(self, **kwargs):
+            self.upload_calls.append(kwargs)
+            return SimpleNamespace(id="file_new")
+
+    class FakeFiles:
+        def content(self, file_id):
+            request = httpx.Request(
+                "GET", f"https://api.openai.com/v1/files/{file_id}/content"
+            )
+            raise openai.APIConnectionError(request=request)
+
+    fake_vector_store_files = FakeVectorStoreFiles()
+    fake_client = SimpleNamespace(
+        vector_stores=SimpleNamespace(files=fake_vector_store_files),
+        files=FakeFiles(),
+    )
+    store = OpenAIStore(
+        client=fake_client,
+        store_id="vs_test",
+        attributes={"tenant": str},
+    )
+
+    result = store.insert(
+        MarkdownDocument(
+            id="local-id",
+            origin="doc",
+            content=content,
+            attributes={"tenant": "new"},
+        )
+    )
+
+    assert result.action == "skipped"
+    assert result.document.id == "file_old"
     assert fake_vector_store_files.upload_calls == []
     assert fake_vector_store_files.deleted_ids == []
 

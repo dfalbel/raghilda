@@ -991,7 +991,7 @@ class DuckDBStore(BaseStore):
             e.end_index,
             e.context,
             {attribute_select}
-            doc.text[ e.start_index: e.end_index ] AS text,
+            e.chunk_text AS text,
             '{method}' AS metric_name,
             {metric_value_sql} AS metric_value
         FROM {source_sql}

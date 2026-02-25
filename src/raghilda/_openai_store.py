@@ -334,8 +334,9 @@ class OpenAIStore(BaseStore):
             ):
                 current_document = self._snapshot_document_from_file(matching_files[0])
                 if current_document is None:
+                    matching_file_id = getattr(matching_files[0], "id", None)
                     current_document = MarkdownDocument(
-                        id=document.id,
+                        id=str(matching_file_id) if matching_file_id else document.id,
                         origin=document.origin,
                         content=document.content,
                         chunks=document.chunks,
