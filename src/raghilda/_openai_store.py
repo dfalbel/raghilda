@@ -55,6 +55,7 @@ class OpenAIMarkdownChunk(MarkdownChunk):
         end_index: Optional[int] = None,
         context=None,
         token_count=None,
+        origin=None,
         attributes=None,
     ):
         # Compute token_count if not provided (use character count)
@@ -72,6 +73,7 @@ class OpenAIMarkdownChunk(MarkdownChunk):
             end_index=end_index,
             token_count=token_count,
             context=context,
+            origin=origin,
             attributes=attributes,
         )
 
@@ -87,7 +89,9 @@ class RetrievedOpenAIMarkdownChunk(OpenAIMarkdownChunk, RetrievedChunk):
         end_index: Optional[int] = None,
         context=None,
         token_count=None,
+        origin=None,
         metrics=None,
+        chunk_ids=None,
         attributes=None,
     ):
         # Initialize OpenAIMarkdownChunk
@@ -97,6 +101,7 @@ class RetrievedOpenAIMarkdownChunk(OpenAIMarkdownChunk, RetrievedChunk):
             end_index=end_index,
             context=context,
             token_count=token_count,
+            origin=origin,
             attributes=attributes,
         )
 
@@ -104,7 +109,9 @@ class RetrievedOpenAIMarkdownChunk(OpenAIMarkdownChunk, RetrievedChunk):
         if metrics is None:
             metrics = []
         self.metrics = metrics
-        self.chunk_ids = []
+        if chunk_ids is None:
+            chunk_ids = []
+        self.chunk_ids = chunk_ids
 
 
 class OpenAIStore(BaseStore):
@@ -129,7 +136,7 @@ class OpenAIStore(BaseStore):
     # Insert documents
     from raghilda.document import MarkdownDocument
     doc = MarkdownDocument(content="# Hello\\nWorld", origin="example.md")
-    store.insert(doc)
+    store.upsert(doc)
 
     # Retrieve similar chunks
     chunks = store.retrieve("greeting", top_k=5)
@@ -282,7 +289,7 @@ class OpenAIStore(BaseStore):
         self._origin_lock_ref_counts: dict[str, int] = {}
         self._origin_locks_guard = threading.Lock()
 
-    def insert(
+    def upsert(
         self,
         document: Document,
         *,
@@ -292,15 +299,11 @@ class OpenAIStore(BaseStore):
         # create a temporary file, write the content to it, and upload it
         if not isinstance(document, MarkdownDocument):
             raise ValueError("Only MarkdownDocument is supported for OpenAIStore")
-        if not document.origin:
-            raise ValueError("document.origin is required for insert().")
+        if not isinstance(document.origin, str) or not document.origin:
+            raise ValueError("document.origin must be a non-empty string for upsert().")
 
         if document.chunks is not None:
-            for chunk in document.chunks:
-                if chunk.attributes:
-                    raise ValueError(
-                        "OpenAIStore does not support per-chunk attributes; use document-level attributes."
-                    )
+            raise ValueError("OpenAIStore does not support chunked documents.")
 
         resolved_attributes = merge_attribute_values(
             attributes_spec=self.attributes_spec,
@@ -333,12 +336,9 @@ class OpenAIStore(BaseStore):
             if existing_files and skip_if_unchanged and len(matching_files) == 1:
                 current_document = self._snapshot_document_from_file(matching_files[0])
                 if current_document is None:
-                    matching_file_id = getattr(matching_files[0], "id", None)
                     current_document = MarkdownDocument(
-                        id=str(matching_file_id) if matching_file_id else document.id,
                         origin=document.origin,
                         content=document.content,
-                        chunks=document.chunks,
                         attributes=document.attributes,
                     )
                 return InsertResult(
@@ -376,10 +376,8 @@ class OpenAIStore(BaseStore):
                     vector_store_id=self.store_id,
                 )
             current_document = MarkdownDocument(
-                id=str(uploaded_file_id),
                 origin=document.origin,
                 content=document.content,
-                chunks=document.chunks,
                 attributes=document.attributes,
             )
             return InsertResult(
@@ -449,7 +447,7 @@ class OpenAIStore(BaseStore):
         attributes_filter
             Optional attribute filter as SQL-like string or dict AST.
             Supports declared attributes only. Built-in columns such as
-            `doc_id` and `origin` are not available in OpenAI filters.
+            `origin` are not available in OpenAI filters.
         **kwargs
             Additional arguments passed to OpenAI's `vector_stores.search()`.
 
@@ -482,6 +480,7 @@ class OpenAIStore(BaseStore):
             chunk = RetrievedOpenAIMarkdownChunk(
                 text=chunk_text,
                 metrics=[Metric(name="similarity", value=item.score)],
+                origin=(item.attributes or {}).get(_INTERNAL_ORIGIN_ATTRIBUTE_KEY),
                 attributes=attribute_values,
             )
             chunks.append(chunk)
@@ -524,9 +523,7 @@ class OpenAIStore(BaseStore):
             for key, value in attributes.items()
             if key in self.attributes_schema
         }
-        file_id = getattr(vector_store_file, "id")
         return MarkdownDocument(
-            id=str(file_id),
             origin=origin,
             content=content,
             attributes=user_attributes or None,

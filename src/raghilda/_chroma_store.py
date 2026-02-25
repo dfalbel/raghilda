@@ -60,7 +60,6 @@ _CONTENT_HASH_METADATA_KEY = "_raghilda_content_hash"
 _CONTENT_TEXT_METADATA_KEY = "_raghilda_content_text"
 
 _RESERVED_SYSTEM_COLUMNS = {
-    "doc_id",
     "chunk_id",
     "start_index",
     "end_index",
@@ -72,7 +71,6 @@ _RESERVED_SYSTEM_COLUMNS = {
 }
 
 _FILTERABLE_BASE_COLUMNS = {
-    "doc_id",
     "chunk_id",
     "start_index",
     "end_index",
@@ -236,9 +234,6 @@ def _get_client(location: str | Path | None):
 class ChromaDBMarkdownChunk(MarkdownChunk):
     """MarkdownChunk with ChromaDB-specific fields for storage."""
 
-    doc_id: Optional[str] = None
-    chunk_id: Optional[int] = None
-
     def __init__(
         self,
         text: str,
@@ -246,8 +241,7 @@ class ChromaDBMarkdownChunk(MarkdownChunk):
         end_index: int,
         context=None,
         token_count=None,
-        doc_id=None,
-        chunk_id=None,
+        origin=None,
         attributes=None,
     ):
         if token_count is None:
@@ -259,11 +253,9 @@ class ChromaDBMarkdownChunk(MarkdownChunk):
             end_index=end_index,
             token_count=token_count,
             context=context,
+            origin=origin,
             attributes=attributes,
         )
-
-        self.doc_id = doc_id
-        self.chunk_id = chunk_id
 
 
 @dataclass(repr=False)
@@ -277,8 +269,7 @@ class RetrievedChromaDBMarkdownChunk(ChromaDBMarkdownChunk, RetrievedChunk):
         end_index: int,
         context=None,
         token_count=None,
-        doc_id=None,
-        chunk_id=None,
+        origin=None,
         metrics=None,
         chunk_ids=None,
         attributes=None,
@@ -289,8 +280,7 @@ class RetrievedChromaDBMarkdownChunk(ChromaDBMarkdownChunk, RetrievedChunk):
             end_index=end_index,
             context=context,
             token_count=token_count,
-            doc_id=doc_id,
-            chunk_id=chunk_id,
+            origin=origin,
             attributes=attributes,
         )
 
@@ -298,10 +288,7 @@ class RetrievedChromaDBMarkdownChunk(ChromaDBMarkdownChunk, RetrievedChunk):
             metrics = []
         self.metrics = metrics
         if chunk_ids is None:
-            if chunk_id is None:
-                chunk_ids = []
-            else:
-                chunk_ids = [int(chunk_id)]
+            chunk_ids = []
         self.chunk_ids = chunk_ids
 
 
@@ -335,7 +322,7 @@ class ChromaDBStore(BaseStore):
 
     store = ChromaDBStore.create(location="raghilda_chroma", name="docs")
 
-    store.insert(markdown_doc)
+    store.upsert(markdown_doc)
     chunks = store.retrieve("hello world", top_k=3)
     ```
     """
@@ -376,7 +363,7 @@ class ChromaDBStore(BaseStore):
             Optional schema for user-defined attribute columns.
             Attribute names use identifier-style syntax.
             Chroma also provides built-in filterable columns:
-            `doc_id`, `chunk_id`, `start_index`, `end_index`, `token_count`,
+            `chunk_id`, `start_index`, `end_index`, `token_count`,
             `context`, and `origin`.
         client
             Optional pre-configured Chroma client (e.g., HttpClient).
@@ -505,7 +492,7 @@ class ChromaDBStore(BaseStore):
         self._chunk_id_lock = threading.Lock()
         self._next_chunk_id: Optional[int] = None
 
-    def insert(
+    def upsert(
         self,
         document: Document,
         *,
@@ -517,12 +504,11 @@ class ChromaDBStore(BaseStore):
             raise ValueError("Document must be chunked before insertion")
         if len(document.chunks) == 0:
             raise ValueError("Document must contain at least one chunk.")
-        if not document.origin:
-            raise ValueError("document.origin is required for insert().")
+        if not isinstance(document.origin, str) or not document.origin:
+            raise ValueError("document.origin must be a non-empty string for upsert().")
 
         with self._origin_lock(document.origin):
             content_hash = hashlib.sha256(document.content.encode("utf-8")).hexdigest()
-            scoped_doc_id = f"{document.origin}:{document.id}"
 
             existing = self.collection.get(
                 where={"origin": document.origin},
@@ -570,7 +556,6 @@ class ChromaDBStore(BaseStore):
                 )
                 ids.append(f"{document.origin}:{idx}")
                 chunk_record = {
-                    "doc_id": scoped_doc_id,
                     "chunk_id": assigned_chunk_ids[idx],
                     "start_index": chunk.start_index,
                     "end_index": chunk.end_index,
@@ -588,6 +573,7 @@ class ChromaDBStore(BaseStore):
                 for key, value in resolved_attributes.items():
                     if key not in merged_document_attributes:
                         merged_document_attributes[key] = value
+                chunk.origin = document.origin
 
             self.collection.upsert(
                 ids=ids,
@@ -600,7 +586,6 @@ class ChromaDBStore(BaseStore):
             if stale_ids:
                 self.collection.delete(ids=stale_ids)
             current_document = MarkdownDocument(
-                id=document.id,
                 origin=document.origin,
                 content=document.content,
                 chunks=document.chunks,
@@ -726,7 +711,7 @@ class ChromaDBStore(BaseStore):
         def do_ingest_work(item: Any) -> None:
             try:
                 doc = prepare(item)
-                self.insert(doc)
+                self.upsert(doc)
             except Exception as e:
                 raise RuntimeError(f"Failed to ingest '{item}': {e}") from e
 
@@ -767,7 +752,7 @@ class ChromaDBStore(BaseStore):
             Optional attribute filter as SQL-like string or dict AST.
             Example string: `"tenant = 'docs' AND priority >= 2"`.
             Supports declared attributes plus built-in columns:
-            `doc_id`, `chunk_id`, `start_index`, `end_index`,
+            `chunk_id`, `start_index`, `end_index`,
             `token_count`, `context`, and `origin`.
         **kwargs
             Additional arguments passed to ChromaDB's `query()` method.
@@ -819,27 +804,31 @@ class ChromaDBStore(BaseStore):
                 end_index=end_index,
                 context=chunk_attributes.get("context"),
                 token_count=token_count,
-                doc_id=chunk_attributes.get("doc_id"),
-                chunk_id=chunk_attributes.get("chunk_id"),
+                origin=chunk_attributes.get("origin"),
+                chunk_ids=(
+                    []
+                    if chunk_attributes.get("chunk_id") is None
+                    else [int(chunk_attributes["chunk_id"])]
+                ),
                 metrics=metrics,
                 attributes=user_attributes,
             )
             output.append(chunk)
 
         if deoverlap:
-            output = deoverlap_chunks(output, key=lambda c: c.doc_id)
+            output = deoverlap_chunks(output, key=lambda c: c.origin)
 
         return output
 
     def size(self) -> int:
         results = self.collection.get(include=["metadatas"])
         chunk_attributes_rows = results.get("metadatas") or []
-        doc_ids = {
-            chunk_attributes.get("doc_id")
+        origins = {
+            chunk_attributes.get("origin")
             for chunk_attributes in chunk_attributes_rows
-            if chunk_attributes and chunk_attributes.get("doc_id")
+            if chunk_attributes and chunk_attributes.get("origin")
         }
-        return len(doc_ids)
+        return len(origins)
 
     def _filterable_columns(self) -> set[str]:
         return _FILTERABLE_BASE_COLUMNS | set(self.metadata.attributes_schema)
@@ -899,20 +888,6 @@ class ChromaDBStore(BaseStore):
     ) -> MarkdownDocument:
         chunk_texts = list(existing.get("documents") or [])
         chunk_metadatas = list(existing.get("metadatas") or [])
-        doc_ids = {
-            str(metadata["doc_id"])
-            for metadata in chunk_metadatas
-            if metadata and metadata.get("doc_id")
-        }
-        if not doc_ids:
-            raise ValueError(
-                f"Corrupted Chroma store for origin '{origin}': missing required doc_id in chunk metadata"
-            )
-        if len(doc_ids) != 1:
-            raise ValueError(
-                f"Corrupted Chroma store for origin '{origin}': multiple doc_id values found"
-            )
-        doc_id = next(iter(doc_ids))
 
         content: str | None = None
         for metadata in chunk_metadatas:
@@ -932,10 +907,6 @@ class ChromaDBStore(BaseStore):
             if metadata is None:
                 raise ValueError(
                     f"Corrupted Chroma store for origin '{origin}': missing chunk metadata"
-                )
-            if str(metadata.get("doc_id")) != doc_id:
-                raise ValueError(
-                    f"Corrupted Chroma store for origin '{origin}': inconsistent doc_id in chunk metadata"
                 )
             chunk_id = int(metadata.get("chunk_id", idx))
             start_index = int(metadata.get("start_index", 0))
@@ -959,6 +930,7 @@ class ChromaDBStore(BaseStore):
                         end_index=end_index,
                         token_count=int(metadata.get("token_count", len(chunk_text))),
                         context=metadata.get("context"),
+                        origin=origin,
                         attributes=attributes or None,
                     ),
                 )
@@ -968,7 +940,6 @@ class ChromaDBStore(BaseStore):
         chunks = [chunk for _, _, _, chunk in chunk_rows]
 
         return MarkdownDocument(
-            id=doc_id,
             origin=origin,
             content=content,
             chunks=chunks,

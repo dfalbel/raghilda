@@ -126,7 +126,7 @@ def test_insert_and_retrieve():
         name="test_store_insert",
         overwrite=True,
     )
-    store.insert(_make_doc())
+    store.upsert(_make_doc())
     assert store.size() == 1
 
     results = store.retrieve("test", top_k=3)
@@ -158,7 +158,7 @@ def test_insert_same_content_but_different_chunking_updates():
             token_count=len(content),
         )
     ]
-    first = store.insert(doc1)
+    first = store.upsert(doc1)
     assert first.action == "inserted"
     assert store.collection.count() == 1
 
@@ -181,7 +181,7 @@ def test_insert_same_content_but_different_chunking_updates():
             token_count=len(content[6:]),
         ),
     ]
-    second = store.insert(doc2)
+    second = store.upsert(doc2)
     assert second.action == "replaced"
     assert second.replaced_document is not None
     assert second.replaced_document.attributes == {"tenant": "docs"}
@@ -214,8 +214,8 @@ def test_insert_unchanged_preserves_document_attributes():
         )
     ]
 
-    store.insert(doc)
-    second = store.insert(doc)
+    store.upsert(doc)
+    second = store.upsert(doc)
     assert second.action == "skipped"
     assert second.document.attributes == {"tenant": "docs"}
 
@@ -243,7 +243,7 @@ def test_insert_result_document_includes_merged_chunk_attributes():
         )
     ]
 
-    inserted = store.insert(original)
+    inserted = store.upsert(original)
     assert inserted.action == "inserted"
     assert inserted.document.attributes == {"tenant": "docs"}
 
@@ -261,7 +261,7 @@ def test_insert_result_document_includes_merged_chunk_attributes():
         )
     ]
 
-    replaced = store.insert(updated, skip_if_unchanged=False)
+    replaced = store.upsert(updated, skip_if_unchanged=False)
     assert replaced.action == "replaced"
     assert replaced.document.attributes == {"tenant": "docs"}
     assert replaced.replaced_document is not None
@@ -285,7 +285,7 @@ def test_insert_keeps_existing_chunks_when_upsert_fails(monkeypatch):
             token_count=len(doc.content),
         )
     ]
-    store.insert(doc)
+    store.upsert(doc)
 
     def fail_upsert(**kwargs):
         raise RuntimeError("upsert failed")
@@ -303,7 +303,7 @@ def test_insert_keeps_existing_chunks_when_upsert_fails(monkeypatch):
     ]
 
     with pytest.raises(RuntimeError, match="upsert failed"):
-        store.insert(updated, skip_if_unchanged=False)
+        store.upsert(updated, skip_if_unchanged=False)
 
     existing = store.collection.get(
         where={"origin": "same-origin"},
@@ -337,7 +337,7 @@ def test_insert_raises_when_stale_chunk_delete_fails(monkeypatch):
             token_count=len(content[6:]),
         ),
     ]
-    store.insert(original)
+    store.upsert(original)
 
     delete_calls = []
 
@@ -358,16 +358,16 @@ def test_insert_raises_when_stale_chunk_delete_fails(monkeypatch):
     ]
 
     with pytest.raises(RuntimeError, match="delete failed"):
-        store.insert(updated, skip_if_unchanged=False)
+        store.upsert(updated, skip_if_unchanged=False)
     assert len(delete_calls) == 1
     assert delete_calls[0]["ids"] == ["same-origin:1"]
 
 
-def test_insert_raises_when_existing_metadata_missing_doc_id(monkeypatch):
+def test_upsert_raises_when_existing_metadata_missing_content_text(monkeypatch):
     store = ChromaDBStore.create(
         location=":memory:",
         embed=DummyEmbeddingFunction(),
-        name="test_store_missing_doc_id",
+        name="test_store_missing_content_text",
         overwrite=True,
     )
 
@@ -380,24 +380,24 @@ def test_insert_raises_when_existing_metadata_missing_doc_id(monkeypatch):
             token_count=len(original.content),
         )
     ]
-    store.insert(original)
+    store.upsert(original)
 
     original_get = store.collection.get
 
-    def missing_doc_id_get(*args, **kwargs):
+    def missing_content_text_get(*args, **kwargs):
         result = original_get(*args, **kwargs)
         metadatas = []
         for metadata in result.get("metadatas") or []:
             if metadata is None:
                 metadatas.append(None)
                 continue
-            without_doc_id = dict(metadata)
-            without_doc_id.pop("doc_id", None)
-            metadatas.append(without_doc_id)
+            without_content = dict(metadata)
+            without_content.pop("_raghilda_content_text", None)
+            metadatas.append(without_content)
         result["metadatas"] = metadatas
         return result
 
-    monkeypatch.setattr(store.collection, "get", missing_doc_id_get)
+    monkeypatch.setattr(store.collection, "get", missing_content_text_get)
 
     updated = MarkdownDocument(origin="same-origin", content="updated content")
     updated.chunks = [
@@ -409,8 +409,8 @@ def test_insert_raises_when_existing_metadata_missing_doc_id(monkeypatch):
         )
     ]
 
-    with pytest.raises(ValueError, match="missing required doc_id"):
-        store.insert(updated, skip_if_unchanged=False)
+    with pytest.raises(ValueError, match="missing required _raghilda_content_text"):
+        store.upsert(updated, skip_if_unchanged=False)
 
 
 def test_insert_same_origin_concurrent_updates_do_not_leave_stale_chunks(monkeypatch):
@@ -473,10 +473,10 @@ def test_insert_same_origin_concurrent_updates_do_not_leave_stale_chunks(monkeyp
     monkeypatch.setattr(store.collection, "upsert", ordered_upsert)
 
     t1 = threading.Thread(
-        target=lambda: store.insert(doc_two_chunks, skip_if_unchanged=False)
+        target=lambda: store.upsert(doc_two_chunks, skip_if_unchanged=False)
     )
     t2 = threading.Thread(
-        target=lambda: store.insert(doc_one_chunk, skip_if_unchanged=False)
+        target=lambda: store.upsert(doc_one_chunk, skip_if_unchanged=False)
     )
     t1.start()
     t2.start()
@@ -510,7 +510,7 @@ def test_insert_releases_origin_locks_for_completed_origins():
                 token_count=len(content),
             )
         ]
-        store.insert(doc, skip_if_unchanged=False)
+        store.upsert(doc, skip_if_unchanged=False)
 
     assert store._origin_locks == {}
 
@@ -539,7 +539,7 @@ def test_insert_stores_document_content_once_in_metadata():
             token_count=len(content[6:]),
         ),
     ]
-    store.insert(doc)
+    store.upsert(doc)
 
     existing = store.collection.get(
         where={"origin": "same-origin"},
@@ -564,7 +564,7 @@ def test_connect_with_embed(tmp_path):
         name="connect_test",
         overwrite=True,
     )
-    store.insert(_make_doc())
+    store.upsert(_make_doc())
     if hasattr(store.client, "persist"):
         store.client.persist()
 
@@ -589,7 +589,7 @@ def test_connect_restores_attributes_schema(tmp_path):
     )
     doc = _make_doc()
     doc.attributes = {"tenant": "docs", "priority": 1}
-    store.insert(doc)
+    store.upsert(doc)
     if hasattr(store.client, "persist"):
         store.client.persist()
 
@@ -656,7 +656,7 @@ def test_retrieve_with_deoverlap():
         name="test_deoverlap",
         overwrite=True,
     )
-    store.insert(_make_doc_with_overlapping_chunks())
+    store.upsert(_make_doc_with_overlapping_chunks())
 
     # With deoverlap=True (default), overlapping chunks should be merged
     results_merged = store.retrieve("hello", top_k=2, deoverlap=True)
@@ -685,7 +685,7 @@ def test_retrieve_with_deoverlap_aggregates_attributes():
     doc.chunks[1].context = "h2"
     doc.chunks[1].attributes = {"topic": "second"}
 
-    store.insert(doc)
+    store.upsert(doc)
     results = store.retrieve("hello", top_k=2, deoverlap=True)
 
     assert len(results) == 1
@@ -706,7 +706,7 @@ def test_insert_and_retrieve_with_attributes_filter():
     doc.attributes = {"tenant": "docs", "topic": "general"}
     assert doc.chunks is not None
     doc.chunks[0].attributes = {"topic": "intro"}
-    store.insert(doc)
+    store.upsert(doc)
 
     intro = store.retrieve(
         "test",
@@ -1020,7 +1020,7 @@ class TestChromaConvertible:
         )
 
         # Insert a document
-        store.insert(_make_doc())
+        store.upsert(_make_doc())
         assert store.size() == 1
 
         # Retrieve and verify it works

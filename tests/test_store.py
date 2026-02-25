@@ -94,7 +94,7 @@ class TestDuckDBStore:
             _get_markdown_chunk(doc, start=10, end=14),
             _get_markdown_chunk(doc, start=15, end=23),
         ]
-        store.insert(doc)
+        store.upsert(doc)
         return store
 
     def test_create_store(self, store):
@@ -126,12 +126,12 @@ class TestDuckDBStore:
             )
         ]
 
-        first_write = store.insert(doc)
+        first_write = store.upsert(doc)
         assert first_write.document.origin == "doc-1"
         assert first_write.document.content == "hello world"
         assert embed.calls == calls_after_create + 1
 
-        second_write = store.insert(doc)
+        second_write = store.upsert(doc)
         assert second_write.action == "skipped"
         assert second_write.document.origin == "doc-1"
         assert second_write.document.content == "hello world"
@@ -162,10 +162,10 @@ class TestDuckDBStore:
             )
         ]
 
-        store.insert(doc)
+        store.upsert(doc)
         assert embed.calls == calls_after_create + 1
 
-        store.insert(doc, skip_if_unchanged=False)
+        store.upsert(doc, skip_if_unchanged=False)
         assert embed.calls == calls_after_create + 2
 
     def test_insert_same_content_but_different_chunking_updates(self):
@@ -188,7 +188,7 @@ class TestDuckDBStore:
                 token_count=len(content),
             )
         ]
-        first = store.insert(doc1)
+        first = store.upsert(doc1)
         assert first.action == "inserted"
         assert embed.calls == calls_after_create + 1
 
@@ -207,7 +207,7 @@ class TestDuckDBStore:
                 token_count=len(content[6:]),
             ),
         ]
-        second = store.insert(doc2)
+        second = store.upsert(doc2)
         assert second.action == "replaced"
         assert embed.calls == calls_after_create + 2
 
@@ -237,7 +237,7 @@ class TestDuckDBStore:
                 token_count=len(content),
             )
         ]
-        first = store.insert(doc1)
+        first = store.upsert(doc1)
         assert first.action == "inserted"
         assert embed.calls == calls_after_create + 1
 
@@ -250,7 +250,7 @@ class TestDuckDBStore:
                 token_count=len(content),
             )
         ]
-        second = store.insert(doc2)
+        second = store.upsert(doc2)
         assert second.action == "replaced"
         assert embed.calls == calls_after_create + 2
 
@@ -275,7 +275,7 @@ class TestDuckDBStore:
             )
         ]
 
-        inserted = store.insert(first)
+        inserted = store.upsert(first)
         assert inserted.action == "inserted"
         assert embed.calls == calls_after_create + 1
 
@@ -289,7 +289,7 @@ class TestDuckDBStore:
             )
         ]
 
-        replaced = store.insert(second)
+        replaced = store.upsert(second)
         assert replaced.action == "replaced"
         assert embed.calls == calls_after_create + 2
 
@@ -324,11 +324,11 @@ class TestDuckDBStore:
             ),
         ]
 
-        first = store.insert(doc)
+        first = store.upsert(doc)
         assert first.action == "inserted"
         assert embed.calls == calls_after_create + 1
 
-        second = store.insert(doc)
+        second = store.upsert(doc)
         assert second.action == "skipped"
         assert second.document.attributes == {"tenant": "docs"}
         assert embed.calls == calls_after_create + 1
@@ -350,8 +350,10 @@ class TestDuckDBStore:
             )
         ]
 
-        with pytest.raises(ValueError, match="document.origin is required"):
-            store.insert(doc)
+        with pytest.raises(
+            ValueError, match="document.origin must be a non-empty string"
+        ):
+            store.upsert(doc)
 
     def test_insert_returns_replaced_document_when_updated(self):
         store = DuckDBStore.create(
@@ -375,7 +377,7 @@ class TestDuckDBStore:
             )
         ]
 
-        inserted = store.insert(first)
+        inserted = store.upsert(first)
         assert inserted.action == "inserted"
         assert inserted.document.origin == "doc-1"
         assert inserted.document.content == "hello world"
@@ -395,7 +397,7 @@ class TestDuckDBStore:
             )
         ]
 
-        updated = store.insert(second)
+        updated = store.upsert(second)
         assert updated.action == "replaced"
         assert updated.document.origin == "doc-1"
         assert updated.document.content == "goodbye world"
@@ -407,7 +409,7 @@ class TestDuckDBStore:
         assert updated.replaced_document.chunks is not None
         assert len(updated.replaced_document.chunks) == 1
 
-        restored = store.insert(updated.replaced_document, skip_if_unchanged=False)
+        restored = store.upsert(updated.replaced_document, skip_if_unchanged=False)
         assert restored.action == "replaced"
         current = store.con.execute(
             "SELECT text FROM documents WHERE origin = 'doc-1'"
@@ -437,7 +439,7 @@ class TestDuckDBStore:
                 token_count=5,
             ),
         ]
-        store.insert(first)
+        store.upsert(first)
 
         second = MarkdownDocument(origin="doc-1", content="hello mars")
         second.chunks = [
@@ -454,7 +456,7 @@ class TestDuckDBStore:
                 token_count=4,
             ),
         ]
-        updated = store.insert(second)
+        updated = store.upsert(second)
         assert updated.action == "replaced"
         assert updated.replaced_document is not None
         assert updated.replaced_document.chunks is not None
@@ -491,7 +493,7 @@ class TestDuckDBStore:
                 token_count=4,
             )
         ]
-        store.insert(doc)
+        store.upsert(doc)
 
         results = store.retrieve_vss([float(len("zeta"))], top_k=1)
         assert len(results) == 1
@@ -516,7 +518,7 @@ class TestDuckDBStore:
                 token_count=4,
             )
         ]
-        store.insert(doc)
+        store.upsert(doc)
         store.build_index("bm25")
 
         results = store.retrieve_bm25("zeta", top_k=1)
@@ -543,7 +545,7 @@ class TestDuckDBStore:
             _get_markdown_chunk(doc, start=6, end=16),  # "world test"
             _get_markdown_chunk(doc, start=12, end=25),  # "test document"
         ]
-        store.insert(doc)
+        store.upsert(doc)
         store.build_index("bm25")
 
         # Without deoverlap, we may get multiple overlapping chunks
@@ -596,7 +598,7 @@ class TestDuckDBStore:
                 attributes={"topic": "second"},
             ),
         ]
-        store.insert(doc)
+        store.upsert(doc)
         store.build_index("bm25")
 
         results = store.retrieve("beta", top_k=5, deoverlap=True)
@@ -628,7 +630,7 @@ class TestDuckDBStore:
                 token_count=11,
             ),
         ]
-        store.insert(doc)
+        store.upsert(doc)
         store.build_index("bm25")
 
         first_results = store.retrieve("alpha", top_k=2, deoverlap=False)
@@ -744,7 +746,7 @@ class TestDuckDBStore:
                 token_count=len(doc.content),
             )
         ]
-        store.insert(doc)
+        store.upsert(doc)
         store.build_index("bm25")
 
         results = store.retrieve(
@@ -800,11 +802,11 @@ class TestDuckDBStore:
             )
         ]
 
-        first = store.insert(doc)
+        first = store.upsert(doc)
         assert first.action == "inserted"
         assert embed.calls == calls_after_create + 1
 
-        second = store.insert(doc)
+        second = store.upsert(doc)
         assert second.action == "skipped"
         assert embed.calls == calls_after_create + 1
 
@@ -847,7 +849,7 @@ class TestDuckDBStore:
             ),
         ]
 
-        store.insert(doc)
+        store.upsert(doc)
         store.build_index("bm25")
 
         private_results = store.retrieve(
@@ -935,7 +937,7 @@ class TestDuckDBStore:
             )
         ]
 
-        store.insert(doc)
+        store.upsert(doc)
         store.build_index("bm25")
 
         results = store.retrieve(
@@ -967,7 +969,7 @@ class TestDuckDBStore:
             )
         ]
 
-        store.insert(doc)
+        store.upsert(doc)
         store.build_index("bm25")
 
         with pytest.raises(ValueError, match="Unknown attribute column 'text'"):
@@ -1012,7 +1014,7 @@ class TestDuckDBStore:
             )
         ]
 
-        store.insert(doc)
+        store.upsert(doc)
         store.build_index("bm25")
 
         results = store.retrieve(
@@ -1075,7 +1077,7 @@ class TestDuckDBStore:
             )
         ]
 
-        store.insert(doc)
+        store.upsert(doc)
         store.build_index("bm25")
 
         results = store.retrieve("alpha", top_k=5, deoverlap=False)
@@ -1112,7 +1114,7 @@ class TestDuckDBStore:
             )
         ]
 
-        inserted = store.insert(doc)
+        inserted = store.upsert(doc)
         assert inserted.action == "inserted"
         assert inserted.document.attributes == {
             "tenant": "docs",
@@ -1133,7 +1135,7 @@ class TestDuckDBStore:
             )
         ]
 
-        replaced = store.insert(updated, skip_if_unchanged=False)
+        replaced = store.upsert(updated, skip_if_unchanged=False)
         assert replaced.action == "replaced"
         assert replaced.document.attributes == {
             "tenant": "docs",
@@ -1170,7 +1172,7 @@ class TestDuckDBStore:
                 token_count=5,
             )
         ]
-        store.insert(first, skip_if_unchanged=False)
+        store.upsert(first, skip_if_unchanged=False)
 
         second = MarkdownDocument(
             origin="lock-snapshot-test",
@@ -1185,7 +1187,7 @@ class TestDuckDBStore:
                 token_count=10,
             )
         ]
-        store.insert(second, skip_if_unchanged=False)
+        store.upsert(second, skip_if_unchanged=False)
 
         assert observed_lock_states
         assert all(observed_lock_states)
@@ -1215,7 +1217,7 @@ class TestDuckDBStore:
             )
         ]
 
-        inserted = store.insert(first)
+        inserted = store.upsert(first)
         assert inserted.action == "inserted"
         assert inserted.document.attributes == {
             "tenant": "docs",
@@ -1236,7 +1238,7 @@ class TestDuckDBStore:
             )
         ]
 
-        replaced = store.insert(second, skip_if_unchanged=False)
+        replaced = store.upsert(second, skip_if_unchanged=False)
         assert replaced.action == "replaced"
         assert replaced.replaced_document is not None
         assert replaced.replaced_document.attributes == {
@@ -1244,7 +1246,7 @@ class TestDuckDBStore:
             "topic": None,
         }
 
-        restored = store.insert(replaced.replaced_document, skip_if_unchanged=False)
+        restored = store.upsert(replaced.replaced_document, skip_if_unchanged=False)
         assert restored.action == "replaced"
         assert restored.document.attributes == {
             "tenant": "docs",
@@ -1273,7 +1275,7 @@ class TestDuckDBStore:
         ]
 
         with pytest.raises(ValueError, match="Missing required attribute 'tenant'"):
-            store.insert(doc)
+            store.upsert(doc)
 
     def test_insert_attributes_without_declared_schema_fails(self):
         store = DuckDBStore.create(
@@ -1297,7 +1299,7 @@ class TestDuckDBStore:
         ]
 
         with pytest.raises(ValueError, match="Unknown attribute key 'tenant'"):
-            store.insert(doc)
+            store.upsert(doc)
 
     def test_insert_unknown_chunk_attributes_key_fails(self):
         store = DuckDBStore.create(
@@ -1323,7 +1325,7 @@ class TestDuckDBStore:
         ]
 
         with pytest.raises(ValueError, match="Unknown attribute key 'unknown'"):
-            store.insert(doc)
+            store.upsert(doc)
 
     def test_insert_rejects_float_for_int_attribute(self):
         store = DuckDBStore.create(
@@ -1351,7 +1353,7 @@ class TestDuckDBStore:
             ValueError,
             match="Invalid value for attributes 'priority': expected int, got float",
         ):
-            store.insert(doc)
+            store.upsert(doc)
 
     def test_insert_rejects_int_for_float_attribute(self):
         store = DuckDBStore.create(
@@ -1379,7 +1381,7 @@ class TestDuckDBStore:
             ValueError,
             match="Invalid value for attributes 'score': expected float, got int",
         ):
-            store.insert(doc)
+            store.upsert(doc)
 
     def test_connect_restores_attributes_schema(self, tmp_path):
         db_path = tmp_path / "attributes-connect.db"
@@ -1418,28 +1420,28 @@ class TestOpenAIStore:
     def store_with_attributes(self):
         _skip_if_unset("OPENAI_API_KEY")
         store = OpenAIStore.create(attributes={"tenant": str, "priority": int})
-        store.insert(
+        store.upsert(
             MarkdownDocument(
                 origin="doc-attrs",
                 content="alpha bronze owl",
                 attributes={"tenant": "docs", "priority": 2},
             ),
         )
-        store.insert(
+        store.upsert(
             MarkdownDocument(
                 origin="docs-priority-1",
                 content="alpha beta",
                 attributes={"tenant": "docs", "priority": 1},
             ),
         )
-        store.insert(
+        store.upsert(
             MarkdownDocument(
                 origin="ops-priority-5",
                 content="alpha gamma",
                 attributes={"tenant": "ops", "priority": 5},
             ),
         )
-        store.insert(
+        store.upsert(
             MarkdownDocument(
                 origin="docs-priority-3",
                 content="alpha alpha delta",
@@ -1475,7 +1477,7 @@ class TestOpenAIStore:
         doc = MarkdownDocument(
             origin="test", content="hello world this is a document world world world"
         )
-        store.insert(doc)
+        store.upsert(doc)
         return store
 
     def test_create_store(self, store):
@@ -1539,7 +1541,7 @@ class TestOpenAIStore:
             float(chunk.attributes["priority"]) in (2.0, 3.0) for chunk in results
         )
 
-    def test_rejects_chunk_attributes(self, store_with_attributes):
+    def test_rejects_chunked_documents(self, store_with_attributes):
         doc = MarkdownDocument(
             origin="chunk-attrs",
             content="hello",
@@ -1556,9 +1558,9 @@ class TestOpenAIStore:
         ]
 
         with pytest.raises(
-            ValueError, match="OpenAIStore does not support per-chunk attributes"
+            ValueError, match="OpenAIStore does not support chunked documents"
         ):
-            store_with_attributes.insert(doc)
+            store_with_attributes.upsert(doc)
 
 
 def test_openai_store_create_rejects_vector_attributes_schema():
@@ -1708,7 +1710,7 @@ def test_openai_store_insert_updates_when_attributes_change_for_same_content():
         attributes={"tenant": str},
     )
 
-    result = store.insert(
+    result = store.upsert(
         MarkdownDocument(
             origin="doc",
             content=content,
@@ -1716,9 +1718,9 @@ def test_openai_store_insert_updates_when_attributes_change_for_same_content():
         )
     )
     assert result.action == "replaced"
-    assert result.document.id == "file_new"
+    assert result.document.origin == "doc"
     assert result.replaced_document is not None
-    assert result.replaced_document.id == "file_old"
+    assert result.replaced_document.origin == "doc"
     assert result.replaced_document.content == content
     assert fake_vector_store_files.deleted_ids == ["file_old"]
     assert len(fake_vector_store_files.upload_calls) == 1
@@ -1775,14 +1777,14 @@ def test_openai_store_insert_unchanged_returns_stable_snapshot_id():
         attributes={"tenant": str},
     )
 
-    first = store.insert(
+    first = store.upsert(
         MarkdownDocument(
             origin="doc",
             content=content,
             attributes={"tenant": "new"},
         )
     )
-    second = store.insert(
+    second = store.upsert(
         MarkdownDocument(
             origin="doc",
             content=content,
@@ -1792,8 +1794,8 @@ def test_openai_store_insert_unchanged_returns_stable_snapshot_id():
 
     assert first.action == "skipped"
     assert second.action == "skipped"
-    assert first.document.id == "file_old"
-    assert second.document.id == "file_old"
+    assert first.document.origin == "doc"
+    assert second.document.origin == "doc"
     assert fake_vector_store_files.upload_calls == []
     assert fake_vector_store_files.deleted_ids == []
 
@@ -1850,9 +1852,8 @@ def test_openai_store_insert_skipped_fallback_preserves_existing_file_id():
         attributes={"tenant": str},
     )
 
-    result = store.insert(
+    result = store.upsert(
         MarkdownDocument(
-            id="local-id",
             origin="doc",
             content=content,
             attributes={"tenant": "new"},
@@ -1860,7 +1861,7 @@ def test_openai_store_insert_skipped_fallback_preserves_existing_file_id():
     )
 
     assert result.action == "skipped"
-    assert result.document.id == "file_old"
+    assert result.document.origin == "doc"
     assert fake_vector_store_files.upload_calls == []
     assert fake_vector_store_files.deleted_ids == []
 
@@ -1920,7 +1921,7 @@ def test_openai_store_insert_rejects_multiple_managed_files_for_origin():
     )
 
     with pytest.raises(ValueError, match="multiple managed files"):
-        store.insert(
+        store.upsert(
             MarkdownDocument(
                 origin="doc",
                 content=content,
@@ -1961,9 +1962,8 @@ def test_openai_store_insert_returns_uploaded_file_id_when_new_document():
         attributes={"tenant": str},
     )
 
-    result = store.insert(
+    result = store.upsert(
         MarkdownDocument(
-            id="local-id",
             origin="doc",
             content="hello world",
             attributes={"tenant": "new"},
@@ -1971,7 +1971,7 @@ def test_openai_store_insert_returns_uploaded_file_id_when_new_document():
     )
 
     assert result.action == "inserted"
-    assert result.document.id == "file_uploaded"
+    assert result.document.origin == "doc"
     assert result.replaced_document is None
     assert len(fake_vector_store_files.upload_calls) == 1
     assert fake_vector_store_files.deleted_ids == []
@@ -2050,7 +2050,7 @@ def test_openai_store_insert_ignores_matching_filename_without_internal_origin()
         attributes={"tenant": str},
     )
 
-    result = store.insert(
+    result = store.upsert(
         MarkdownDocument(
             origin="doc",
             content=content,
@@ -2104,7 +2104,7 @@ def test_openai_store_insert_ignores_unmanaged_matching_filename():
         attributes={"tenant": str},
     )
 
-    result = store.insert(
+    result = store.upsert(
         MarkdownDocument(
             origin="doc",
             content=content,
@@ -2167,7 +2167,7 @@ def test_openai_store_insert_keeps_existing_file_when_upload_fails():
     )
 
     with pytest.raises(RuntimeError, match="upload failed"):
-        store.insert(
+        store.upsert(
             MarkdownDocument(
                 origin="doc",
                 content="new content",
@@ -2263,7 +2263,7 @@ def test_openai_store_insert_serializes_replacement_for_same_origin():
 
     def do_insert(content: str):
         try:
-            store.insert(
+            store.upsert(
                 MarkdownDocument(
                     origin="doc",
                     content=content,
@@ -2346,7 +2346,7 @@ def test_openai_store_insert_raises_when_old_file_delete_fails():
     )
 
     with pytest.raises(openai.APIConnectionError):
-        store.insert(
+        store.upsert(
             MarkdownDocument(
                 origin="doc",
                 content=new_content,
@@ -2505,7 +2505,7 @@ def test_openai_store_insert_updates_when_snapshot_download_forbidden():
         attributes={"tenant": str},
     )
 
-    result = store.insert(
+    result = store.upsert(
         MarkdownDocument(
             origin="doc",
             content=new_content,
@@ -2571,7 +2571,7 @@ def test_openai_store_insert_updates_when_snapshot_download_connection_error():
         attributes={"tenant": str},
     )
 
-    result = store.insert(
+    result = store.upsert(
         MarkdownDocument(
             origin="doc",
             content=new_content,
@@ -2746,7 +2746,7 @@ def test_connect(tmp_path):
     )
     doc = MarkdownDocument(origin="test", content="hello world")
     doc.chunks = [_get_markdown_chunk(doc, start=0, end=5)]
-    store.insert(doc)
+    store.upsert(doc)
     store.build_index()
     store.con.close()
 

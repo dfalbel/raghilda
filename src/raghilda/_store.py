@@ -50,20 +50,20 @@ class BaseStore(ABC):
         pass
 
     @abstractmethod
-    def insert(
+    def upsert(
         self,
         document: Document,
         *,
         skip_if_unchanged: bool = True,
     ) -> InsertResult:
-        """Insert a document into the store.
+        """Upsert a document into the store.
 
         Insert or replace a document in the store.
 
         Parameters
         ----------
         document
-            The document to insert.
+            The document to upsert.
         skip_if_unchanged
             If True (default), skip the write when the existing document
             for the same identity key already has identical content and

@@ -26,6 +26,8 @@ class Chunk:
     context
         Optional heading context showing the document hierarchy at this
         chunk's position (e.g., the Markdown headings that apply).
+    origin
+        Origin of the parent document this chunk belongs to.
     attributes
         Optional user-defined attributes associated with the chunk. These
         attributes can be used for retrieval filtering/scoping and downstream
@@ -37,6 +39,7 @@ class Chunk:
     end_index: int
     token_count: int
     context: Optional[str] = None
+    origin: Optional[str] = None
     attributes: Optional[dict[str, Any]] = None
 
     def __repr__(self) -> str:
@@ -89,6 +92,7 @@ class Chunk:
                 end_index=chunk.end_index,
                 token_count=chunk.token_count,
                 context=getattr(chunk, "context", None),
+                origin=getattr(chunk, "origin", None),
                 attributes=dict(raw_attributes or {}),
             )
         raise TypeError(f"Cannot convert {type(chunk).__name__} to Chunk")
