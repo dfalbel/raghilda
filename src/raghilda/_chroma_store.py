@@ -893,26 +893,49 @@ class ChromaDBStore(BaseStore):
     ) -> MarkdownDocument:
         chunk_texts = list(existing.get("documents") or [])
         chunk_metadatas = list(existing.get("metadatas") or [])
+        chunk_rows_source = list(zip(chunk_texts, chunk_metadatas, strict=False))
+
+        doc_id = None
+        for metadata in chunk_metadatas:
+            if metadata and metadata.get("doc_id"):
+                doc_id = str(metadata["doc_id"])
+                break
+        if doc_id is None:
+            raise ValueError(
+                f"Corrupted Chroma store for origin '{origin}': missing required doc_id in chunk metadata"
+            )
+
+        scoped_rows = [
+            (chunk_text, metadata or {})
+            for chunk_text, metadata in chunk_rows_source
+            if metadata and str(metadata.get("doc_id")) == doc_id
+        ]
+        if not scoped_rows:
+            raise ValueError(
+                f"Corrupted Chroma store for origin '{origin}': no chunks found for doc_id '{doc_id}'"
+            )
+        scoped_chunk_texts = [chunk_text for chunk_text, _ in scoped_rows]
+        scoped_chunk_metadatas = [metadata for _, metadata in scoped_rows]
 
         content = None
-        for metadata in chunk_metadatas:
+        for metadata in scoped_chunk_metadatas:
             if metadata and metadata.get(_CONTENT_TEXT_METADATA_KEY):
                 content = metadata[_CONTENT_TEXT_METADATA_KEY]
                 break
         if content is None:
-            if not chunk_texts:
+            if not scoped_chunk_texts:
                 content = ""
             else:
                 max_end = 0
-                for metadata in chunk_metadatas:
+                for metadata in scoped_chunk_metadatas:
                     if metadata and metadata.get("end_index") is not None:
                         max_end = max(max_end, int(metadata["end_index"]))
                 if max_end == 0:
-                    content = "\n\n".join(chunk_texts)
+                    content = "\n\n".join(scoped_chunk_texts)
                 else:
                     chars = [" "] * max_end
                     for chunk_text, metadata in zip(
-                        chunk_texts, chunk_metadatas, strict=False
+                        scoped_chunk_texts, scoped_chunk_metadatas, strict=False
                     ):
                         if not metadata:
                             continue
@@ -926,7 +949,7 @@ class ChromaDBStore(BaseStore):
         chunk_rows: list[tuple[int, Chunk]] = []
         document_attributes: dict[str, Any] = {}
         for idx, (chunk_text, metadata) in enumerate(
-            zip(chunk_texts, chunk_metadatas, strict=False)
+            zip(scoped_chunk_texts, scoped_chunk_metadatas, strict=False)
         ):
             metadata = metadata or {}
             chunk_id = int(metadata.get("chunk_id", idx))
@@ -957,16 +980,6 @@ class ChromaDBStore(BaseStore):
         chunk_rows.sort(key=lambda row: row[0])
         chunks = [chunk for _, chunk in chunk_rows]
 
-        doc_id = None
-        for metadata in chunk_metadatas:
-            if metadata and metadata.get("doc_id"):
-                doc_id = str(metadata["doc_id"])
-                break
-
-        if doc_id is None:
-            raise ValueError(
-                f"Corrupted Chroma store for origin '{origin}': missing required doc_id in chunk metadata"
-            )
         return MarkdownDocument(
             id=doc_id,
             origin=origin,

@@ -3,6 +3,7 @@ import socket
 import threading
 import time
 import json
+import hashlib
 from typing import Annotated
 
 pytest.importorskip("chromadb")
@@ -218,6 +219,80 @@ def test_insert_unchanged_preserves_document_attributes():
     second = store.insert(doc)
     assert second.action == "skipped"
     assert second.document.attributes == {"tenant": "docs"}
+
+
+def test_insert_replaced_snapshot_uses_single_legacy_doc_id_group():
+    store = ChromaDBStore.create(
+        location=":memory:",
+        embed=DummyEmbeddingFunction(),
+        name="test_store_legacy_duplicate_origin_snapshot",
+        overwrite=True,
+        attributes={"version": str},
+    )
+
+    store.collection.upsert(
+        ids=["legacy-a:0", "legacy-b:0"],
+        documents=["alpha", "beta"],
+        metadatas=[
+            {
+                "doc_id": "doc_a",
+                "chunk_id": 0,
+                "start_index": 0,
+                "end_index": 5,
+                "token_count": 5,
+                "origin": "same-origin",
+                "_raghilda_content_hash": hashlib.sha256(
+                    "alpha".encode("utf-8")
+                ).hexdigest(),
+                "_raghilda_content_text": "alpha",
+                "version": "a",
+            },
+            {
+                "doc_id": "doc_b",
+                "chunk_id": 0,
+                "start_index": 0,
+                "end_index": 4,
+                "token_count": 4,
+                "origin": "same-origin",
+                "_raghilda_content_hash": hashlib.sha256(
+                    "beta".encode("utf-8")
+                ).hexdigest(),
+                "_raghilda_content_text": "beta",
+                "version": "b",
+            },
+        ],
+    )
+
+    updated = MarkdownDocument(
+        origin="same-origin",
+        content="gamma",
+        attributes={"version": "new"},
+    )
+    updated.chunks = [
+        MarkdownChunk(
+            start_index=0,
+            end_index=5,
+            text="gamma",
+            token_count=5,
+        )
+    ]
+
+    result = store.insert(updated, skip_if_unchanged=False)
+    assert result.action == "replaced"
+    assert result.replaced_document is not None
+    assert len(result.replaced_document.chunks or []) == 1
+
+    if result.replaced_document.id == "doc_a":
+        assert result.replaced_document.content == "alpha"
+        assert result.replaced_document.attributes == {"version": "a"}
+        assert result.replaced_document.chunks is not None
+        assert result.replaced_document.chunks[0].text == "alpha"
+    else:
+        assert result.replaced_document.id == "doc_b"
+        assert result.replaced_document.content == "beta"
+        assert result.replaced_document.attributes == {"version": "b"}
+        assert result.replaced_document.chunks is not None
+        assert result.replaced_document.chunks[0].text == "beta"
 
 
 def test_insert_keeps_existing_chunks_when_upsert_fails(monkeypatch):
