@@ -4,7 +4,8 @@ import pytest
 
 from raghilda.chunk import MarkdownChunk
 from raghilda.document import Document, MarkdownDocument
-from raghilda.store import ChromaDBStore, DuckDBStore, OpenAIStore
+import raghilda.store as store_module
+from raghilda.store import ChromaDBStore, DuckDBStore, OpenAIStore, WriteResult
 
 
 def test_document_uses_origin_field_not_id():
@@ -21,6 +22,11 @@ def test_store_api_uses_upsert_not_insert():
     assert not hasattr(DuckDBStore, "insert")
     assert not hasattr(ChromaDBStore, "insert")
     assert not hasattr(OpenAIStore, "insert")
+
+
+def test_store_exports_write_result_not_insert_result():
+    assert WriteResult is store_module.WriteResult
+    assert not hasattr(store_module, "InsertResult")
 
 
 def test_openai_upsert_rejects_chunked_document():

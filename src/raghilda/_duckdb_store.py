@@ -1,4 +1,4 @@
-from ._store import BaseStore, InsertResult
+from ._store import BaseStore, WriteResult
 from collections.abc import Sized
 import json
 import os
@@ -402,7 +402,7 @@ class DuckDBStore(BaseStore):
         document: Document,
         *,
         skip_if_unchanged: bool = True,
-    ) -> InsertResult:
+    ) -> WriteResult:
         if not isinstance(document, MarkdownDocument):
             raise NotImplementedError(
                 f"Upsert not implemented for type {type(document)}"
@@ -436,7 +436,7 @@ class DuckDBStore(BaseStore):
                     origin=document.origin,
                     text=existing["text"],
                 )
-                return InsertResult(
+                return WriteResult(
                     action="skipped",
                     document=current_document,
                 )
@@ -460,7 +460,7 @@ class DuckDBStore(BaseStore):
                     origin=document.origin,
                     text=existing["text"],
                 )
-                return InsertResult(
+                return WriteResult(
                     action="skipped",
                     document=current_document,
                 )
@@ -506,7 +506,7 @@ class DuckDBStore(BaseStore):
                 origin=document.origin,
                 text=document.content,
             )
-            return InsertResult(
+            return WriteResult(
                 action=action,
                 document=current_document,
                 replaced_document=replaced_document,

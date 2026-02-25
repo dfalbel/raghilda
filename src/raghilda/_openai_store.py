@@ -3,7 +3,7 @@ import json
 import hashlib
 import threading
 from contextlib import contextmanager
-from ._store import BaseStore, InsertResult
+from ._store import BaseStore, WriteResult
 from .chunk import MarkdownChunk, RetrievedChunk, Metric
 from .document import Document, MarkdownDocument
 from typing import Any, Mapping, Optional, Sequence
@@ -294,7 +294,7 @@ class OpenAIStore(BaseStore):
         document: Document,
         *,
         skip_if_unchanged: bool = True,
-    ) -> InsertResult:
+    ) -> WriteResult:
         # Upload the document content as a file to the vector store
         # create a temporary file, write the content to it, and upload it
         if not isinstance(document, MarkdownDocument):
@@ -341,7 +341,7 @@ class OpenAIStore(BaseStore):
                         content=document.content,
                         attributes=document.attributes,
                     )
-                return InsertResult(
+                return WriteResult(
                     action="skipped",
                     document=current_document,
                 )
@@ -391,7 +391,7 @@ class OpenAIStore(BaseStore):
                 content=document.content,
                 attributes=document.attributes,
             )
-            return InsertResult(
+            return WriteResult(
                 action="replaced" if existing_files else "inserted",
                 document=current_document,
                 replaced_document=replaced_document,

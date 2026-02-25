@@ -9,7 +9,7 @@ from .document import Document, MarkdownDocument
 
 
 @dataclass(frozen=True)
-class InsertResult:
+class WriteResult:
     action: Literal["inserted", "replaced", "skipped"]
     document: MarkdownDocument
     replaced_document: MarkdownDocument | None = None
@@ -55,7 +55,7 @@ class BaseStore(ABC):
         document: Document,
         *,
         skip_if_unchanged: bool = True,
-    ) -> InsertResult:
+    ) -> WriteResult:
         """Upsert a document into the store.
 
         Insert or replace a document in the store.
