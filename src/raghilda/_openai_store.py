@@ -2,6 +2,7 @@ import openai
 import json
 import hashlib
 import threading
+import logging
 from contextlib import contextmanager
 from ._store import BaseStore, WriteResult
 from .chunk import MarkdownChunk, RetrievedChunk, Metric
@@ -30,6 +31,8 @@ _RESERVED_INTERNAL_ATTRIBUTE_KEYS = {
 }
 _OPENAI_MAX_FILE_ATTRIBUTES = 16
 _OPENAI_INTERNAL_ATTRIBUTE_COUNT = 2
+
+logger = logging.getLogger(__name__)
 
 
 def _ensure_openai_user_attribute_limit(user_attribute_count: int) -> None:
@@ -338,10 +341,19 @@ class OpenAIStore(BaseStore):
                     != getattr(keep_file, "id", None)
                 ]
                 for vector_store_file in duplicate_files:
-                    self.client.vector_stores.files.delete(
-                        file_id=vector_store_file.id,
-                        vector_store_id=self.store_id,
-                    )
+                    try:
+                        self.client.vector_stores.files.delete(
+                            file_id=vector_store_file.id,
+                            vector_store_id=self.store_id,
+                        )
+                    except Exception as exc:
+                        logger.warning(
+                            "Skipping duplicate managed file cleanup for origin '%s' "
+                            "because delete failed for file '%s': %s",
+                            document.origin,
+                            getattr(vector_store_file, "id", None),
+                            exc,
+                        )
                 current_document = self._snapshot_document_from_file(keep_file)
                 if current_document is None:
                     current_document = MarkdownDocument(
