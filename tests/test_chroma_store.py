@@ -413,7 +413,7 @@ def test_insert_raises_when_stale_chunk_delete_fails(monkeypatch):
     assert delete_calls[0]["ids"] == ["same-origin:1"]
 
 
-def test_upsert_raises_when_existing_metadata_missing_content_text(monkeypatch):
+def test_upsert_replaces_when_existing_metadata_missing_content_text(monkeypatch):
     store = ChromaDBStore.create(
         location=":memory:",
         embed=DummyEmbeddingFunction(),
@@ -459,8 +459,17 @@ def test_upsert_raises_when_existing_metadata_missing_content_text(monkeypatch):
         )
     ]
 
-    with pytest.raises(ValueError, match="missing required _raghilda_content_text"):
-        store.upsert(updated, skip_if_unchanged=False)
+    result = store.upsert(updated, skip_if_unchanged=False)
+
+    assert result.action == "replaced"
+    assert result.replaced_document is None
+    assert result.document.content == "updated content"
+
+    existing = store.collection.get(
+        where={"origin": "same-origin"},
+        include=["documents"],
+    )
+    assert existing["documents"] == ["updated content"]
 
 
 def test_upsert_accepts_existing_empty_content_text_metadata():

@@ -529,16 +529,25 @@ class ChromaDBStore(BaseStore):
                     existing_hash == content_hash
                     and existing_signature == incoming_signature
                 ):
-                    current_document = self._snapshot_document_from_existing(
-                        existing,
-                        origin=document.origin,
+                    current_document = (
+                        self._snapshot_document_from_existing_if_available(
+                            existing,
+                            origin=document.origin,
+                        )
                     )
+                    if current_document is None:
+                        current_document = MarkdownDocument(
+                            origin=document.origin,
+                            content=document.content,
+                            chunks=document.chunks,
+                            attributes=document.attributes,
+                        )
                     return WriteResult(
                         action="skipped",
                         document=current_document,
                     )
             if existing_ids:
-                replaced_document = self._snapshot_document_from_existing(
+                replaced_document = self._snapshot_document_from_existing_if_available(
                     existing,
                     origin=document.origin,
                 )
@@ -881,6 +890,16 @@ class ChromaDBStore(BaseStore):
 
     def _chunk_signature_sort_key(self, row: tuple[Any, ...]) -> tuple[str, ...]:
         return tuple(f"{type(value).__name__}:{value!r}" for value in row)
+
+    def _snapshot_document_from_existing_if_available(
+        self, existing: dict[str, Any], *, origin: str
+    ) -> Optional[MarkdownDocument]:
+        try:
+            return self._snapshot_document_from_existing(existing, origin=origin)
+        except ValueError as exc:
+            if f"missing required {_CONTENT_TEXT_METADATA_KEY}" not in str(exc):
+                raise
+            return None
 
     def _snapshot_document_from_existing(
         self, existing: dict[str, Any], *, origin: str
