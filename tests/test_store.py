@@ -1919,8 +1919,9 @@ def test_openai_store_insert_skipped_fallback_preserves_existing_file_id():
     assert fake_vector_store_files.deleted_ids == []
 
 
-def test_openai_store_insert_rejects_multiple_managed_files_for_origin():
+def test_openai_store_insert_handles_multiple_managed_files_for_origin():
     content = "hello world"
+    content_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
 
     class FakeVectorStoreFiles:
         def __init__(self):
@@ -1944,7 +1945,7 @@ def test_openai_store_insert_rejects_multiple_managed_files_for_origin():
                         filename="doc.md",
                         attributes={
                             "_raghilda_origin": "doc",
-                            "_raghilda_content_hash": "hash-b",
+                            "_raghilda_content_hash": content_hash,
                             "tenant": "new",
                         },
                     ),
@@ -1962,10 +1963,15 @@ def test_openai_store_insert_rejects_multiple_managed_files_for_origin():
             self.upload_calls.append(kwargs)
             return SimpleNamespace(id="file_new")
 
+    class FakeFiles:
+        def content(self, file_id):
+            assert file_id == "file_two"
+            return SimpleNamespace(content=content.encode("utf-8"))
+
     fake_vector_store_files = FakeVectorStoreFiles()
     fake_client = SimpleNamespace(
         vector_stores=SimpleNamespace(files=fake_vector_store_files),
-        files=SimpleNamespace(content=lambda file_id: None),
+        files=FakeFiles(),
     )
     store = OpenAIStore(
         client=fake_client,
@@ -1973,17 +1979,18 @@ def test_openai_store_insert_rejects_multiple_managed_files_for_origin():
         attributes={"tenant": str},
     )
 
-    with pytest.raises(ValueError, match="multiple managed files"):
-        store.upsert(
-            MarkdownDocument(
-                origin="doc",
-                content=content,
-                attributes={"tenant": "new"},
-            )
+    result = store.upsert(
+        MarkdownDocument(
+            origin="doc",
+            content=content,
+            attributes={"tenant": "new"},
         )
+    )
 
+    assert result.action == "skipped"
+    assert result.document.origin == "doc"
     assert fake_vector_store_files.upload_calls == []
-    assert fake_vector_store_files.deleted_ids == []
+    assert fake_vector_store_files.deleted_ids == ["file_one"]
 
 
 def test_openai_store_insert_returns_uploaded_file_id_when_new_document():

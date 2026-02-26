@@ -319,10 +319,6 @@ class OpenAIStore(BaseStore):
                 for vector_store_file in self._iter_vector_store_files()
                 if self._matches_existing_origin(vector_store_file, document.origin)
             ]
-            if len(existing_files) > 1:
-                raise ValueError(
-                    f"Corrupted OpenAI vector store: multiple managed files found for origin '{document.origin}'."
-                )
             matching_files = [
                 vector_store_file
                 for vector_store_file in existing_files
@@ -333,8 +329,20 @@ class OpenAIStore(BaseStore):
                 )
             ]
             replaced_document = None
-            if existing_files and skip_if_unchanged and len(matching_files) == 1:
-                current_document = self._snapshot_document_from_file(matching_files[0])
+            if existing_files and skip_if_unchanged and matching_files:
+                keep_file = self._select_primary_vector_store_file(matching_files)
+                duplicate_files = [
+                    vector_store_file
+                    for vector_store_file in existing_files
+                    if getattr(vector_store_file, "id", None)
+                    != getattr(keep_file, "id", None)
+                ]
+                for vector_store_file in duplicate_files:
+                    self.client.vector_stores.files.delete(
+                        file_id=vector_store_file.id,
+                        vector_store_id=self.store_id,
+                    )
+                current_document = self._snapshot_document_from_file(keep_file)
                 if current_document is None:
                     current_document = MarkdownDocument(
                         origin=document.origin,
@@ -347,7 +355,9 @@ class OpenAIStore(BaseStore):
                 )
 
             if existing_files:
-                replaced_document = self._snapshot_document_from_file(existing_files[0])
+                replaced_document = self._snapshot_document_from_file(
+                    self._select_primary_vector_store_file(existing_files)
+                )
 
             file_attributes = {
                 **user_file_attributes,
@@ -438,6 +448,17 @@ class OpenAIStore(BaseStore):
             if attributes.get(key) != expected_user_attributes.get(key):
                 return False
         return True
+
+    def _select_primary_vector_store_file(
+        self, vector_store_files: Sequence[Any]
+    ) -> Any:
+        return max(
+            vector_store_files,
+            key=lambda vector_store_file: (
+                int(getattr(vector_store_file, "created_at", -1) or -1),
+                str(getattr(vector_store_file, "id", "")),
+            ),
+        )
 
     def retrieve(
         self,
