@@ -3063,7 +3063,7 @@ def test_connect(tmp_path):
     assert results[0].text == "hello"
 
 
-def test_connect_accepts_embeddings_table_without_chunk_text(tmp_path):
+def test_connect_fails_when_embeddings_chunk_id_has_no_default(tmp_path):
     db_path = tmp_path / "missing_chunk_text.db"
     con = duckdb.connect(str(db_path))
     con.execute(
@@ -3102,6 +3102,100 @@ def test_connect_accepts_embeddings_table_without_chunk_text(tmp_path):
     )
     con.close()
 
+    with pytest.raises(
+        ValueError,
+        match=(
+            "Invalid DuckDB store schema: table 'embeddings' column 'chunk_id' "
+            "must have a DEFAULT expression"
+        ),
+    ):
+        DuckDBStore.connect(str(db_path))
+
+
+def test_connect_read_only_accepts_chunk_id_without_default(tmp_path):
+    db_path = tmp_path / "missing_chunk_id_default_read_only.db"
+    con = duckdb.connect(str(db_path))
+    con.execute(
+        """
+        CREATE TABLE metadata (
+            name VARCHAR,
+            title VARCHAR,
+            embed_config VARCHAR,
+            attributes_schema_json VARCHAR
+        )
+        """
+    )
+    con.execute(
+        "INSERT INTO metadata VALUES (?, ?, ?, ?)",
+        ["test", "Test", None, json.dumps({})],
+    )
+    con.execute(
+        """
+        CREATE TABLE documents (
+            doc_id VARCHAR,
+            origin VARCHAR,
+            text VARCHAR
+        )
+        """
+    )
+    con.execute(
+        """
+        CREATE TABLE embeddings (
+            doc_id VARCHAR,
+            chunk_id INTEGER,
+            start_index INTEGER,
+            end_index INTEGER,
+            context VARCHAR
+        )
+        """
+    )
+    con.close()
+
+    store = DuckDBStore.connect(str(db_path), read_only=True)
+    assert store.metadata.name == "test"
+    assert store.metadata.title == "Test"
+
+
+def test_connect_accepts_embeddings_table_without_chunk_text(tmp_path):
+    db_path = tmp_path / "missing_chunk_text.db"
+    con = duckdb.connect(str(db_path))
+    con.execute(
+        """
+        CREATE TABLE metadata (
+            name VARCHAR,
+            title VARCHAR,
+            embed_config VARCHAR,
+            attributes_schema_json VARCHAR
+        )
+        """
+    )
+    con.execute(
+        "INSERT INTO metadata VALUES (?, ?, ?, ?)",
+        ["test", "Test", None, json.dumps({})],
+    )
+    con.execute(
+        """
+        CREATE TABLE documents (
+            doc_id VARCHAR,
+            origin VARCHAR,
+            text VARCHAR
+        )
+        """
+    )
+    con.execute("CREATE SEQUENCE chunk_id_seq START 1")
+    con.execute(
+        """
+        CREATE TABLE embeddings (
+            doc_id VARCHAR,
+            chunk_id INTEGER DEFAULT nextval('chunk_id_seq'),
+            start_index INTEGER,
+            end_index INTEGER,
+            context VARCHAR
+        )
+        """
+    )
+    con.close()
+
     store = DuckDBStore.connect(str(db_path))
     assert store.metadata.name == "test"
     assert store.metadata.title == "Test"
@@ -3118,6 +3212,11 @@ def test_connect_accepts_embeddings_table_without_chunk_text(tmp_path):
     inserted = store.upsert(doc)
     assert inserted.document.chunks is not None
     assert inserted.document.chunks[0].text == "hello"
+    chunk_ids = store.con.execute(
+        "SELECT chunk_id FROM embeddings WHERE doc_id = ?",
+        ["test-doc"],
+    ).fetchall()
+    assert chunk_ids == [(1,)]
 
 
 def test_create_does_not_add_chunk_text_column_to_embeddings():

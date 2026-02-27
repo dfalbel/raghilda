@@ -237,7 +237,11 @@ class DuckDBStore(BaseStore):
             attributes=attributes_spec,
         )
 
-        return DuckDBStore(con, metadata)
+        return DuckDBStore(
+            con,
+            metadata,
+            require_writable_schema=not read_only,
+        )
 
     @staticmethod
     def create(
@@ -390,6 +394,8 @@ class DuckDBStore(BaseStore):
         self,
         con: duckdb.DuckDBPyConnection,
         metadata: EmbeddedAttributesStoreMetadata,
+        *,
+        require_writable_schema: bool = True,
     ):
         self.con = con
         self.metadata = metadata
@@ -397,6 +403,7 @@ class DuckDBStore(BaseStore):
             con=self.con,
             attributes_schema=self.metadata.attributes_schema,
             require_embedding=self.metadata.embed is not None,
+            require_writable=require_writable_schema,
         )
         self._db_lock = threading.Lock()
 
@@ -1290,6 +1297,7 @@ def _validate_required_schema(
     *,
     attributes_schema: Mapping[str, AttributeType],
     require_embedding: bool,
+    require_writable: bool,
 ) -> None:
     _assert_table_has_columns(
         con,
@@ -1316,6 +1324,8 @@ def _validate_required_schema(
         table="embeddings",
         required_columns=required_embeddings_columns,
     )
+    if require_writable:
+        _assert_table_column_has_default(con, table="embeddings", column="chunk_id")
 
 
 def _assert_table_has_columns(
@@ -1333,7 +1343,40 @@ def _assert_table_has_columns(
         )
 
 
+def _assert_table_column_has_default(
+    con: duckdb.DuckDBPyConnection,
+    *,
+    table: str,
+    column: str,
+) -> None:
+    default = _table_column_default(con, table=table, column=column)
+    if default is None or str(default).strip().upper() == "NULL":
+        raise ValueError(
+            f"Invalid DuckDB store schema: table '{table}' column '{column}' "
+            "must have a DEFAULT expression"
+        )
+
+
 def _table_columns(con: duckdb.DuckDBPyConnection, *, table: str) -> set[str]:
+    rows = _table_info_rows(con, table=table)
+    return {str(row[1]) for row in rows}
+
+
+def _table_column_default(
+    con: duckdb.DuckDBPyConnection, *, table: str, column: str
+) -> Any | None:
+    rows = _table_info_rows(con, table=table)
+    for row in rows:
+        if str(row[1]) == column:
+            return row[4]
+    raise ValueError(
+        f"Invalid DuckDB store schema: table '{table}' missing required columns: {column}"
+    )
+
+
+def _table_info_rows(
+    con: duckdb.DuckDBPyConnection, *, table: str
+) -> list[tuple[Any, ...]]:
     try:
         rows = con.execute(f"PRAGMA table_info('{table}')").fetchall()
     except duckdb.Error as exc:
@@ -1344,7 +1387,7 @@ def _table_columns(con: duckdb.DuckDBPyConnection, *, table: str) -> set[str]:
         raise ValueError(
             f"Invalid DuckDB store schema: missing required table '{table}'"
         )
-    return {str(row[1]) for row in rows}
+    return rows
 
 
 def _duckdb_append(
