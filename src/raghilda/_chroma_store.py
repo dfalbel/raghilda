@@ -508,14 +508,13 @@ class ChromaDBStore(BaseStore):
         if not isinstance(document.origin, str) or not document.origin:
             raise ValueError("document.origin must be a non-empty string for upsert().")
 
-        with self._origin_lock(document.origin):
+        with self._origin_lock(document.origin), self._collection_lock:
             content_hash = hashlib.sha256(document.content.encode("utf-8")).hexdigest()
 
-            with self._collection_lock:
-                existing = self.collection.get(
-                    where={"origin": document.origin},
-                    include=["metadatas", "documents"],
-                )
+            existing = self.collection.get(
+                where={"origin": document.origin},
+                include=["metadatas", "documents"],
+            )
             existing_ids = list(existing.get("ids") or [])
             replaced_document = None
             incoming_signature = self._incoming_chunk_signature(document)
@@ -586,18 +585,16 @@ class ChromaDBStore(BaseStore):
                         merged_document_attributes[key] = value
                 chunk.origin = document.origin
 
-            with self._collection_lock:
-                self.collection.upsert(
-                    ids=ids,
-                    documents=texts,
-                    metadatas=chunk_attributes_records,
-                )
+            self.collection.upsert(
+                ids=ids,
+                documents=texts,
+                metadatas=chunk_attributes_records,
+            )
             stale_ids = [
                 existing_id for existing_id in existing_ids if existing_id not in ids
             ]
             if stale_ids:
-                with self._collection_lock:
-                    self.collection.delete(ids=stale_ids)
+                self.collection.delete(ids=stale_ids)
             current_document = MarkdownDocument(
                 origin=document.origin,
                 content=document.content,
@@ -975,8 +972,7 @@ class ChromaDBStore(BaseStore):
             return []
         with self._chunk_id_lock:
             if self._next_chunk_id is None:
-                with self._collection_lock:
-                    results = self.collection.get(include=["metadatas"])
+                results = self.collection.get(include=["metadatas"])
                 chunk_attributes_rows = results.get("metadatas") or []
                 max_chunk_id = -1
                 for chunk_attributes in chunk_attributes_rows:
