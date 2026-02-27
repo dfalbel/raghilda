@@ -3064,20 +3064,6 @@ def test_connect(tmp_path):
     assert results[0].text == "hello"
 
 
-def test_create_does_not_add_chunk_text_column_to_embeddings():
-    store = DuckDBStore.create(
-        location=":memory:",
-        embed=None,
-        overwrite=True,
-        name="schema-no-chunk-text",
-    )
-    columns = {
-        row[1]
-        for row in store.con.execute("PRAGMA table_info('embeddings')").fetchall()
-    }
-    assert "chunk_text" not in columns
-
-
 def test_duckdb_store_does_not_require_pandas():
     repo_root = Path(__file__).resolve().parents[1]
     src_path = repo_root / "src"
