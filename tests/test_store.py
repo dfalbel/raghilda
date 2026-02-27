@@ -7,7 +7,6 @@ import textwrap
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Annotated, Any, cast
-import duckdb
 import httpx
 import openai
 import pytest
