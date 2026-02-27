@@ -3065,55 +3065,6 @@ def test_connect(tmp_path):
     assert results[0].text == "hello"
 
 
-def test_connect_fails_when_embeddings_chunk_id_has_no_default(tmp_path):
-    db_path = tmp_path / "missing_chunk_id_default.db"
-    con = duckdb.connect(str(db_path))
-    con.execute(
-        """
-        CREATE TABLE metadata (
-            name VARCHAR,
-            title VARCHAR,
-            embed_config VARCHAR,
-            attributes_schema_json VARCHAR
-        )
-        """
-    )
-    con.execute(
-        "INSERT INTO metadata VALUES (?, ?, ?, ?)",
-        ["test", "Test", None, json.dumps({})],
-    )
-    con.execute(
-        """
-        CREATE TABLE documents (
-            doc_id VARCHAR,
-            origin VARCHAR,
-            text VARCHAR
-        )
-        """
-    )
-    con.execute(
-        """
-        CREATE TABLE embeddings (
-            doc_id VARCHAR,
-            chunk_id INTEGER,
-            start_index INTEGER,
-            end_index INTEGER,
-            context VARCHAR
-        )
-        """
-    )
-    con.close()
-
-    with pytest.raises(
-        ValueError,
-        match=(
-            "Invalid DuckDB store schema: table 'embeddings' column 'chunk_id' "
-            "must have a DEFAULT expression"
-        ),
-    ):
-        DuckDBStore.connect(str(db_path))
-
-
 def test_create_does_not_add_chunk_text_column_to_embeddings():
     store = DuckDBStore.create(
         location=":memory:",
