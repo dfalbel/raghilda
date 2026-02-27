@@ -10,6 +10,7 @@ from typing import Annotated, Any, cast
 import httpx
 import openai
 import pytest
+import duckdb
 from raghilda.store import DuckDBStore, OpenAIStore
 from raghilda.scrape import find_links
 from raghilda.document import MarkdownDocument
@@ -217,7 +218,7 @@ class TestDuckDBStore:
         assert embed.calls == calls_after_create + 2
 
         chunk_count = store.con.execute(
-            "SELECT COUNT(*) FROM embeddings e JOIN documents d USING (doc_id) WHERE d.origin = 'doc-1'"
+            "SELECT COUNT(*) FROM embeddings e JOIN documents d USING (origin) WHERE d.origin = 'doc-1'"
         ).fetchone()
         assert chunk_count is not None
         assert chunk_count[0] == 2
@@ -617,7 +618,7 @@ class TestDuckDBStore:
         # Check that deoverlapped chunks don't have overlapping ranges
         for i, chunk1 in enumerate(results_deoverlap):
             for chunk2 in results_deoverlap[i + 1 :]:
-                if chunk1.doc_id == chunk2.doc_id:
+                if chunk1.origin == chunk2.origin:
                     # Same document - ranges should not overlap
                     assert (
                         chunk1.end_index <= chunk2.start_index
@@ -1210,9 +1211,12 @@ class TestDuckDBStore:
         observed_lock_states: list[bool] = []
         original_snapshot = store._load_document_snapshot
 
-        def wrapped_snapshot(*, doc_id: str, origin: str, text: str):
+        def wrapped_snapshot(*, origin: str, text: str):
             observed_lock_states.append(store._db_lock.locked())
-            return original_snapshot(doc_id=doc_id, origin=origin, text=text)
+            return original_snapshot(
+                origin=origin,
+                text=text,
+            )
 
         monkeypatch.setattr(store, "_load_document_snapshot", wrapped_snapshot)
 
@@ -1310,7 +1314,7 @@ class TestDuckDBStore:
             "topic": None,
         }
 
-    def test_insert_replaced_snapshot_uses_existing_doc_id_for_legacy_rows(self):
+    def test_insert_replaced_snapshot_uses_existing_origin_rows(self):
         store = DuckDBStore.create(
             location=":memory:",
             embed=None,
@@ -1318,22 +1322,21 @@ class TestDuckDBStore:
             attributes={"tenant": str},
         )
 
-        legacy_doc_id = "legacy-doc-id"
         store.con.execute(
-            "INSERT INTO documents (doc_id, origin, text) VALUES (?, ?, ?)",
-            [legacy_doc_id, "legacy-origin", "alpha"],
+            "INSERT INTO documents (origin, text) VALUES (?, ?)",
+            ["legacy-origin", "alpha"],
         )
         store.con.execute(
             """
             INSERT INTO embeddings (
-                doc_id,
+                origin,
                 start_index,
                 end_index,
                 context,
                 tenant
             ) VALUES (?, ?, ?, ?, ?)
             """,
-            [legacy_doc_id, 0, 5, None, "old"],
+            ["legacy-origin", 0, 5, None, "old"],
         )
 
         updated = MarkdownDocument(
@@ -1697,7 +1700,7 @@ def test_openai_store_normalize_attributes_preserves_large_ints():
     normalized = _normalize_openai_attributes(
         {
             "tenant_id": 9007199254740992,
-            "doc_id": 9007199254740993,
+            "external_id": 9007199254740993,
             "score": 0.75,
             "active": True,
             "label": "docs",
@@ -1705,13 +1708,13 @@ def test_openai_store_normalize_attributes_preserves_large_ints():
     )
     assert normalized == {
         "tenant_id": 9007199254740992,
-        "doc_id": 9007199254740993,
+        "external_id": 9007199254740993,
         "score": 0.75,
         "active": True,
         "label": "docs",
     }
     assert isinstance(normalized["tenant_id"], int)
-    assert isinstance(normalized["doc_id"], int)
+    assert isinstance(normalized["external_id"], int)
     assert isinstance(normalized["score"], float)
 
 
@@ -3062,6 +3065,84 @@ def test_connect(tmp_path):
     results = store2.retrieve("hello", top_k=1)
     assert len(results) >= 1
     assert results[0].text == "hello"
+
+
+def test_connect_accepts_embeddings_table_without_chunk_text(tmp_path):
+    db_path = tmp_path / "missing_chunk_text.db"
+    con = duckdb.connect(str(db_path))
+    con.execute(
+        """
+        CREATE TABLE metadata (
+            name VARCHAR,
+            title VARCHAR,
+            embed_config VARCHAR,
+            attributes_schema_json VARCHAR
+        )
+        """
+    )
+    con.execute(
+        "INSERT INTO metadata VALUES (?, ?, ?, ?)",
+        ["test", "Test", None, json.dumps({})],
+    )
+    con.execute(
+        """
+        CREATE TABLE documents (
+            origin VARCHAR,
+            text VARCHAR
+        )
+        """
+    )
+    con.execute(
+        """
+        CREATE TABLE embeddings (
+            origin VARCHAR,
+            chunk_id INTEGER,
+            start_index INTEGER,
+            end_index INTEGER,
+            context VARCHAR
+        )
+        """
+    )
+    con.close()
+
+    store = DuckDBStore.connect(str(db_path))
+    assert store.metadata.name == "test"
+    assert store.metadata.title == "Test"
+
+    doc = MarkdownDocument(origin="test-doc", content="hello world")
+    doc.chunks = [
+        MarkdownChunk(
+            start_index=0,
+            end_index=5,
+            text="hello",
+            token_count=5,
+        )
+    ]
+    inserted = store.upsert(doc)
+    assert inserted.document.chunks is not None
+    assert inserted.document.chunks[0].text == "hello"
+
+
+def test_create_does_not_add_chunk_text_column_to_embeddings():
+    store = DuckDBStore.create(
+        location=":memory:",
+        embed=None,
+        overwrite=True,
+        name="schema-no-chunk-text",
+    )
+    embeddings_columns = {
+        row[1]
+        for row in store.con.execute("PRAGMA table_info('embeddings')").fetchall()
+    }
+    assert "chunk_text" not in embeddings_columns
+    assert "doc_id" not in embeddings_columns
+    assert "origin" in embeddings_columns
+
+    documents_columns = {
+        row[1] for row in store.con.execute("PRAGMA table_info('documents')").fetchall()
+    }
+    assert "doc_id" not in documents_columns
+    assert "origin" in documents_columns
 
 
 def test_duckdb_store_does_not_require_pandas():
