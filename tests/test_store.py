@@ -3135,14 +3135,18 @@ def test_create_does_not_add_chunk_text_column_to_embeddings():
         for row in store.con.execute("PRAGMA table_info('embeddings')").fetchall()
     }
     assert "chunk_text" not in embeddings_columns
-    assert "doc_id" not in embeddings_columns
-    assert "origin" in embeddings_columns
+    assert embeddings_columns == {
+        "origin",
+        "chunk_id",
+        "start_index",
+        "end_index",
+        "context",
+    }
 
     documents_columns = {
         row[1] for row in store.con.execute("PRAGMA table_info('documents')").fetchall()
     }
-    assert "doc_id" not in documents_columns
-    assert "origin" in documents_columns
+    assert documents_columns == {"origin", "text"}
 
 
 def test_duckdb_store_does_not_require_pandas():
