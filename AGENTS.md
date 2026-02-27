@@ -15,6 +15,7 @@
 - Docs are built with Quarto, so use it's syntax in docstrings.
 
 ## Must-Run Commands Before Hand-off
+- `./.venv/bin/task check` (matches CI; run this before pushing)
 - `./.venv/bin/task format_check`
 - `./.venv/bin/task lint_check`
 - `./.venv/bin/task types_check`

@@ -416,7 +416,8 @@ class DuckDBStore(BaseStore):
             raise ValueError("Document must contain at least one chunk.")
         for chunk in document.chunks:
             _validate_chunk_against_document(
-                document=document,
+                document_origin=document.origin,
+                content=document.content,
                 chunk=chunk,
             )
 
@@ -1387,13 +1388,15 @@ def _slice_chunk_text(content: str, *, start_index: int, end_index: int) -> str:
     return content[start_index:end_index]
 
 
-def _validate_chunk_against_document(*, document: MarkdownDocument, chunk: Chunk) -> None:
+def _validate_chunk_against_document(
+    *, document_origin: str, content: str, chunk: Chunk
+) -> None:
     _validate_chunk_origin_matches_document_origin(
-        document_origin=document.origin,
+        document_origin=document_origin,
         chunk=chunk,
     )
     _validate_chunk_text_matches_document_content(
-        content=document.content,
+        content=content,
         chunk=chunk,
     )
 
