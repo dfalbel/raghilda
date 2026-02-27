@@ -18,6 +18,7 @@ from raghilda.chunk import MarkdownChunk, RetrievedChunk
 from raghilda._attributes import AttributeFloatVectorType
 from raghilda._duckdb_store import (
     RetrievedDuckDBMarkdownChunk,
+    VSSMethod,
 )  # internal implementation
 from raghilda._openai_store import _normalize_openai_attributes
 from raghilda.embedding import EmbeddingOpenAI
@@ -526,20 +527,33 @@ class TestDuckDBStore:
             overwrite=True,
             name="vss-text-source",
         )
-        doc = MarkdownDocument(origin="vss-text-source", content="alpha beta gamma")
+        doc = MarkdownDocument(origin="vss-text-source", content="alphabetagamma")
         doc.chunks = [
             MarkdownChunk(
                 start_index=0,
                 end_index=5,
+                text="alpha",
+                token_count=5,
+            ),
+            MarkdownChunk(
+                start_index=5,
+                end_index=9,
                 text="zeta",
                 token_count=4,
-            )
+            ),
         ]
         store.upsert(doc)
 
-        results = store.retrieve_vss([float(len("alpha"))], top_k=1)
-        assert len(results) == 1
-        assert results[0].text == "alpha"
+        results = store.retrieve_vss(
+            [float(len("beta"))],
+            top_k=2,
+            method=VSSMethod.EUCLIDEAN_DISTANCE,
+        )
+        second_chunk = next(
+            (chunk for chunk in results if chunk.start_index == 5), None
+        )
+        assert second_chunk is not None
+        assert second_chunk.text == "beta"
 
     @pytest.mark.parametrize("embed", [None, EmbeddingOpenAI()], indirect=True)
     def test_retrieve_bm25(self, store_with_docs):
@@ -551,21 +565,30 @@ class TestDuckDBStore:
             assert chunk.text is not None
 
     def test_retrieve_bm25_returns_document_slice_not_chunk_text(self, store):
-        doc = MarkdownDocument(origin="bm25-text-source", content="alpha beta gamma")
+        doc = MarkdownDocument(origin="bm25-text-source", content="alphabetagamma")
         doc.chunks = [
             MarkdownChunk(
                 start_index=0,
                 end_index=5,
+                text="alpha",
+                token_count=5,
+            ),
+            MarkdownChunk(
+                start_index=5,
+                end_index=9,
                 text="zeta",
                 token_count=4,
-            )
+            ),
         ]
         store.upsert(doc)
         store.build_index("bm25")
 
-        results = store.retrieve_bm25("alpha", top_k=1)
-        assert len(results) == 1
-        assert results[0].text == "alpha"
+        results = store.retrieve_bm25("beta", top_k=2)
+        second_chunk = next(
+            (chunk for chunk in results if chunk.start_index == 5), None
+        )
+        assert second_chunk is not None
+        assert second_chunk.text == "beta"
 
     @pytest.mark.parametrize("embed", [EmbeddingOpenAI()], indirect=True)
     def test_retrieve(self, store_with_docs):

@@ -347,7 +347,7 @@ class DuckDBStore(BaseStore):
             SELECT
             d.origin as origin,
             e.*,
-            d.text[ e.start_index : e.end_index ] as text
+            d.text[e.start_index + 1:e.end_index] as text
             FROM
             documents d
             JOIN
@@ -982,7 +982,7 @@ class DuckDBStore(BaseStore):
             e.end_index,
             e.context,
             {attribute_select}
-            doc.text[e.start_index:e.end_index] AS text,
+            doc.text[e.start_index + 1:e.end_index] AS text,
             '{method}' AS metric_name,
             {metric_value_sql} AS metric_value
         FROM {source_sql}
@@ -1083,7 +1083,7 @@ class DuckDBStore(BaseStore):
                 e.end_index, 
                 e.context, 
                 {attribute_select}
-                doc.text[e.start_index:e.end_index] AS text,
+                doc.text[e.start_index + 1:e.end_index] AS text,
                 'bm25' AS metric_name,
                 fts_main_chunks.match_bm25(chunk_id, $query, k := $k, b := $b, conjunctive := $conjunctive) AS metric_value
             FROM embeddings e
