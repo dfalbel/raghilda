@@ -490,6 +490,8 @@ class ChromaDBStore(BaseStore):
         self._origin_lock_ref_counts: dict[str, int] = {}
         self._origin_locks_guard = threading.Lock()
         self._chunk_id_lock = threading.Lock()
+        # Temporary workaround for ChromaDB's non-thread-safe telemetry batching.
+        # See https://github.com/chroma-core/chroma/issues/6512
         self._collection_lock = threading.Lock()
         self._next_chunk_id: Optional[int] = None
 
