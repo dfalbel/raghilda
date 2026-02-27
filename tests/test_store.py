@@ -511,6 +511,7 @@ class TestDuckDBStore:
         assert len(results) == 5
 
     def test_retrieve_vss_returns_document_slice_for_non_zero_start(self):
+        # Guard against 0-based/1-based off-by-one slicing errors for non-zero starts.
         embed = CountingEmbedding()
         store = DuckDBStore.create(
             location=":memory:",
@@ -556,6 +557,7 @@ class TestDuckDBStore:
             assert chunk.text is not None
 
     def test_retrieve_bm25_returns_document_slice_for_non_zero_start(self, store):
+        # Guard against 0-based/1-based off-by-one slicing errors for non-zero starts.
         doc = MarkdownDocument(origin="bm25-text-source", content="alphabetagamma")
         doc.chunks = [
             MarkdownChunk(
@@ -3064,7 +3066,7 @@ def test_connect(tmp_path):
 
 
 def test_connect_fails_when_embeddings_chunk_id_has_no_default(tmp_path):
-    db_path = tmp_path / "missing_chunk_text.db"
+    db_path = tmp_path / "missing_chunk_id_default.db"
     con = duckdb.connect(str(db_path))
     con.execute(
         """
