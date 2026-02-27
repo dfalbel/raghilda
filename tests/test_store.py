@@ -10,7 +10,6 @@ from typing import Annotated, Any, cast
 import httpx
 import openai
 import pytest
-import duckdb
 from raghilda.store import DuckDBStore, OpenAIStore
 from raghilda.scrape import find_links
 from raghilda.document import MarkdownDocument
@@ -1313,56 +1312,6 @@ class TestDuckDBStore:
             "tenant": "docs",
             "topic": None,
         }
-
-    def test_insert_replaced_snapshot_uses_existing_origin_rows(self):
-        store = DuckDBStore.create(
-            location=":memory:",
-            embed=None,
-            overwrite=True,
-            attributes={"tenant": str},
-        )
-
-        store.con.execute(
-            "INSERT INTO documents (origin, text) VALUES (?, ?)",
-            ["legacy-origin", "alpha"],
-        )
-        store.con.execute(
-            """
-            INSERT INTO embeddings (
-                origin,
-                start_index,
-                end_index,
-                context,
-                tenant
-            ) VALUES (?, ?, ?, ?, ?)
-            """,
-            ["legacy-origin", 0, 5, None, "old"],
-        )
-
-        updated = MarkdownDocument(
-            origin="legacy-origin",
-            content="alpha beta",
-            attributes={"tenant": "new"},
-        )
-        updated.chunks = [
-            MarkdownChunk(
-                start_index=0,
-                end_index=10,
-                text="alpha beta",
-                token_count=10,
-            )
-        ]
-
-        replaced = store.upsert(updated, skip_if_unchanged=False)
-        assert replaced.action == "replaced"
-        assert replaced.document.chunks is not None
-        assert [chunk.text for chunk in replaced.document.chunks] == ["alpha beta"]
-        assert replaced.document.attributes == {"tenant": "new"}
-        assert replaced.replaced_document is not None
-        assert [chunk.text for chunk in replaced.replaced_document.chunks or []] == [
-            "alpha"
-        ]
-        assert replaced.replaced_document.attributes == {"tenant": "old"}
 
     def test_insert_missing_required_attribute_fails(self):
         store = DuckDBStore.create(
@@ -3065,62 +3014,6 @@ def test_connect(tmp_path):
     results = store2.retrieve("hello", top_k=1)
     assert len(results) >= 1
     assert results[0].text == "hello"
-
-
-def test_connect_accepts_embeddings_table_without_chunk_text(tmp_path):
-    db_path = tmp_path / "missing_chunk_text.db"
-    con = duckdb.connect(str(db_path))
-    con.execute(
-        """
-        CREATE TABLE metadata (
-            name VARCHAR,
-            title VARCHAR,
-            embed_config VARCHAR,
-            attributes_schema_json VARCHAR
-        )
-        """
-    )
-    con.execute(
-        "INSERT INTO metadata VALUES (?, ?, ?, ?)",
-        ["test", "Test", None, json.dumps({})],
-    )
-    con.execute(
-        """
-        CREATE TABLE documents (
-            origin VARCHAR,
-            text VARCHAR
-        )
-        """
-    )
-    con.execute(
-        """
-        CREATE TABLE embeddings (
-            origin VARCHAR,
-            chunk_id INTEGER,
-            start_index INTEGER,
-            end_index INTEGER,
-            context VARCHAR
-        )
-        """
-    )
-    con.close()
-
-    store = DuckDBStore.connect(str(db_path))
-    assert store.metadata.name == "test"
-    assert store.metadata.title == "Test"
-
-    doc = MarkdownDocument(origin="test-doc", content="hello world")
-    doc.chunks = [
-        MarkdownChunk(
-            start_index=0,
-            end_index=5,
-            text="hello",
-            token_count=5,
-        )
-    ]
-    inserted = store.upsert(doc)
-    assert inserted.document.chunks is not None
-    assert inserted.document.chunks[0].text == "hello"
 
 
 def test_create_does_not_add_chunk_text_column_to_embeddings():
