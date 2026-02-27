@@ -418,6 +418,10 @@ class DuckDBStore(BaseStore):
             raise ValueError("Document must contain at least one chunk.")
         for chunk in document.chunks:
             chunk.origin = document.origin
+            _validate_chunk_text_matches_document_content(
+                content=document.content,
+                chunk=chunk,
+            )
 
         # DuckDB connections are not thread-safe for reads or writes.
         # Hold the lock here to avoid unnecessary embedding work when the
@@ -1403,3 +1407,19 @@ def _slice_chunk_text(content: str, *, start_index: int, end_index: int) -> str:
             f"len(content)={len(content)}."
         )
     return content[start_index:end_index]
+
+
+def _validate_chunk_text_matches_document_content(
+    *, content: str, chunk: Chunk
+) -> None:
+    expected_text = _slice_chunk_text(
+        content,
+        start_index=chunk.start_index,
+        end_index=chunk.end_index,
+    )
+    if chunk.text != expected_text:
+        raise ValueError(
+            "Chunk text must match document.content[start_index:end_index]. "
+            f"Got chunk.text={chunk.text!r}, expected {expected_text!r} "
+            f"for start_index={chunk.start_index}, end_index={chunk.end_index}."
+        )

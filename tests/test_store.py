@@ -223,7 +223,7 @@ class TestDuckDBStore:
         assert chunk_count is not None
         assert chunk_count[0] == 2
 
-    def test_insert_same_layout_but_different_chunk_text_skips(self):
+    def test_insert_same_layout_but_different_chunk_text_fails_fast(self):
         embed = CountingEmbedding()
         store = DuckDBStore.create(
             location=":memory:",
@@ -256,11 +256,14 @@ class TestDuckDBStore:
                 token_count=len(content),
             )
         ]
-        second = store.upsert(doc2)
-        assert second.action == "skipped"
+        with pytest.raises(
+            ValueError,
+            match=r"Chunk text must match document\.content\[start_index:end_index\]",
+        ):
+            store.upsert(doc2)
         assert embed.calls == calls_after_create + 1
 
-    def test_insert_same_origin_with_changed_chunk_text_skips(self):
+    def test_insert_with_mismatched_chunk_text_fails_fast(self):
         embed = CountingEmbedding()
         store = DuckDBStore.create(
             location=":memory:",
@@ -280,24 +283,12 @@ class TestDuckDBStore:
                 token_count=len(content),
             )
         ]
-
-        inserted = store.upsert(first)
-        assert inserted.action == "inserted"
-        assert embed.calls == calls_after_create + 1
-
-        second = MarkdownDocument(origin="doc-1", content=content)
-        second.chunks = [
-            MarkdownChunk(
-                start_index=0,
-                end_index=len(content),
-                text=content,
-                token_count=len(content),
-            )
-        ]
-
-        replaced = store.upsert(second)
-        assert replaced.action == "skipped"
-        assert embed.calls == calls_after_create + 1
+        with pytest.raises(
+            ValueError,
+            match=r"Chunk text must match document\.content\[start_index:end_index\]",
+        ):
+            store.upsert(first)
+        assert embed.calls == calls_after_create
 
     def test_insert_same_multi_chunk_layout_skips_when_unchanged(self):
         embed = CountingEmbedding()
@@ -519,7 +510,7 @@ class TestDuckDBStore:
         results = store_with_docs.retrieve_vss("test", top_k=5)
         assert len(results) == 5
 
-    def test_retrieve_vss_returns_document_slice_not_chunk_text(self):
+    def test_retrieve_vss_returns_document_slice_for_non_zero_start(self):
         embed = CountingEmbedding()
         store = DuckDBStore.create(
             location=":memory:",
@@ -538,7 +529,7 @@ class TestDuckDBStore:
             MarkdownChunk(
                 start_index=5,
                 end_index=9,
-                text="zeta",
+                text="beta",
                 token_count=4,
             ),
         ]
@@ -564,7 +555,7 @@ class TestDuckDBStore:
             assert isinstance(chunk, RetrievedDuckDBMarkdownChunk)
             assert chunk.text is not None
 
-    def test_retrieve_bm25_returns_document_slice_not_chunk_text(self, store):
+    def test_retrieve_bm25_returns_document_slice_for_non_zero_start(self, store):
         doc = MarkdownDocument(origin="bm25-text-source", content="alphabetagamma")
         doc.chunks = [
             MarkdownChunk(
@@ -576,7 +567,7 @@ class TestDuckDBStore:
             MarkdownChunk(
                 start_index=5,
                 end_index=9,
-                text="zeta",
+                text="beta",
                 token_count=4,
             ),
         ]
