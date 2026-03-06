@@ -488,11 +488,14 @@ class ChromaDBStore(BaseStore):
         merged_metadata = dict(collection_metadata or {})
         merged_metadata.update(store_metadata)
 
-        collection = client.create_collection(
+        collection_kwargs: dict[str, Any] = dict(
             name=name,
             metadata=merged_metadata,
-            embedding_function=embedding_function,
         )
+        if embedding_function is not None:
+            collection_kwargs["embedding_function"] = embedding_function
+
+        collection = client.create_collection(**collection_kwargs)
 
         return ChromaDBStore(
             client=client,

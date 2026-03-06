@@ -148,6 +148,26 @@ def test_create_store():
     assert store.metadata.title == "Test ChromaDB Store"
 
 
+def test_create_store_uses_chroma_default_embedding_when_embed_is_none():
+    captured_kwargs = None
+
+    class FakeClient:
+        def create_collection(self, **kwargs):
+            nonlocal captured_kwargs
+            captured_kwargs = kwargs
+            return self
+
+    store = ChromaDBStore.create(
+        client=FakeClient(),
+        name="test_store_default_embedding",
+        overwrite=True,
+    )
+
+    assert isinstance(store, ChromaDBStore)
+    assert captured_kwargs is not None
+    assert "embedding_function" not in captured_kwargs
+
+
 def test_insert_and_retrieve():
     store = ChromaDBStore.create(
         location=":memory:",
