@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field, fields
 from typing import Any, Optional, Union
-from .types import ChunkLike, IntoChunk, TokenCountChunkLike
+from .types import ChunkLike, IntoChunk
 
 __all__ = ["Chunk", "MarkdownChunk", "Metric", "RetrievedChunk"]
 
@@ -23,8 +23,6 @@ class Chunk:
         Character position where this chunk ends in the source document.
     char_count
         Number of characters in this chunk.
-    token_count
-        Optional tokenizer-specific token count supplied upstream.
     context
         Optional heading context showing the document hierarchy at this
         chunk's position (e.g., the Markdown headings that apply).
@@ -40,7 +38,6 @@ class Chunk:
     start_index: int
     end_index: int
     char_count: int
-    token_count: Optional[int] = None
     context: Optional[str] = None
     origin: Optional[str] = None
     attributes: Optional[dict[str, Any]] = None
@@ -62,9 +59,7 @@ class Chunk:
     __str__ = __repr__
 
     @classmethod
-    def from_any(
-        cls, chunk: Union[ChunkLike, TokenCountChunkLike, IntoChunk]
-    ) -> "Chunk":
+    def from_any(cls, chunk: Union[ChunkLike, IntoChunk]) -> "Chunk":
         """Convert any chunk-like or IntoChunk object to a raghilda Chunk.
 
         Parameters
@@ -95,20 +90,7 @@ class Chunk:
                 text=chunk.text,
                 start_index=chunk.start_index,
                 end_index=chunk.end_index,
-                char_count=chunk.char_count,
-                token_count=getattr(chunk, "token_count", None),
-                context=getattr(chunk, "context", None),
-                origin=getattr(chunk, "origin", None),
-                attributes=dict(raw_attributes or {}),
-            )
-        elif isinstance(chunk, TokenCountChunkLike):
-            raw_attributes = getattr(chunk, "attributes", None)
-            return cls(
-                text=chunk.text,
-                start_index=chunk.start_index,
-                end_index=chunk.end_index,
-                char_count=len(chunk.text),
-                token_count=chunk.token_count,
+                char_count=getattr(chunk, "char_count", len(chunk.text)),
                 context=getattr(chunk, "context", None),
                 origin=getattr(chunk, "origin", None),
                 attributes=dict(raw_attributes or {}),
@@ -184,7 +166,6 @@ class RetrievedChunk(Chunk):
         start_index=0,
         end_index=25,
         char_count=25,
-        token_count=5,
         metrics=[
             Metric(name="similarity", value=0.92),
             Metric(name="bm25_score", value=15.3),

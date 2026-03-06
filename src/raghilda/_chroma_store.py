@@ -68,7 +68,6 @@ _RESERVED_SYSTEM_COLUMNS = {
     "start_index",
     "end_index",
     "char_count",
-    "token_count",
     "context",
     "origin",
     _CONTENT_HASH_METADATA_KEY,
@@ -80,7 +79,6 @@ _FILTERABLE_BASE_COLUMNS = {
     "start_index",
     "end_index",
     "char_count",
-    "token_count",
     "context",
     "origin",
 }
@@ -325,7 +323,6 @@ class ChromaDBMarkdownChunk(MarkdownChunk):
         end_index: int,
         context=None,
         char_count=None,
-        token_count=None,
         origin=None,
         attributes=None,
     ):
@@ -337,7 +334,6 @@ class ChromaDBMarkdownChunk(MarkdownChunk):
             start_index=start_index,
             end_index=end_index,
             char_count=char_count,
-            token_count=token_count,
             context=context,
             origin=origin,
             attributes=attributes,
@@ -355,7 +351,6 @@ class RetrievedChromaDBMarkdownChunk(ChromaDBMarkdownChunk, RetrievedChunk):
         end_index: int,
         context=None,
         char_count=None,
-        token_count=None,
         origin=None,
         metrics=None,
         chunk_ids=None,
@@ -367,7 +362,6 @@ class RetrievedChromaDBMarkdownChunk(ChromaDBMarkdownChunk, RetrievedChunk):
             end_index=end_index,
             context=context,
             char_count=char_count,
-            token_count=token_count,
             origin=origin,
             attributes=attributes,
         )
@@ -456,7 +450,7 @@ class ChromaDBStore(BaseStore):
             Attribute names use identifier-style syntax.
             Chroma also provides built-in filterable columns:
             `chunk_id`, `start_index`, `end_index`, `char_count`,
-            `context`, `origin`, and optional `token_count`.
+            `context`, and `origin`.
         client
             Optional pre-configured Chroma client (e.g., HttpClient).
 
@@ -656,7 +650,6 @@ class ChromaDBStore(BaseStore):
                     "start_index": chunk.start_index,
                     "end_index": chunk.end_index,
                     "char_count": chunk.char_count,
-                    "token_count": chunk.token_count,
                     "context": chunk.context,
                     "origin": document.origin,
                     _CONTENT_HASH_METADATA_KEY: content_hash,
@@ -850,7 +843,7 @@ class ChromaDBStore(BaseStore):
             Example string: `"tenant = 'docs' AND priority >= 2"`.
             Supports declared attributes plus built-in columns:
             `chunk_id`, `start_index`, `end_index`, `char_count`,
-            `context`, `origin`, and optional `token_count`.
+            `context`, and `origin`.
         **kwargs
             Additional arguments passed to ChromaDB's `query()` method.
 
@@ -895,7 +888,6 @@ class ChromaDBStore(BaseStore):
             if "char_count" not in chunk_attributes:
                 raise ValueError("Corrupted Chroma store: missing required char_count")
             char_count = int(chunk_attributes["char_count"])
-            token_count = chunk_attributes.get("token_count")
             metrics = []
             if distance is not None:
                 metrics.append(Metric(name="distance", value=distance))
@@ -905,7 +897,6 @@ class ChromaDBStore(BaseStore):
                 end_index=end_index,
                 context=chunk_attributes.get("context"),
                 char_count=char_count,
-                token_count=token_count,
                 origin=chunk_attributes.get("origin"),
                 chunk_ids=(
                     []
@@ -966,7 +957,6 @@ class ChromaDBStore(BaseStore):
                     chunk.end_index,
                     chunk.char_count,
                     chunk.context,
-                    chunk.token_count,
                     chunk.text,
                     *[resolved_attributes.get(col) for col in attribute_columns],
                 )
@@ -992,7 +982,6 @@ class ChromaDBStore(BaseStore):
                     int(metadata.get("end_index", start_index + len(chunk_text))),
                     int(metadata["char_count"]),
                     metadata.get("context"),
-                    metadata.get("token_count"),
                     chunk_text,
                     *[metadata.get(col) for col in attribute_columns],
                 )
@@ -1063,7 +1052,6 @@ class ChromaDBStore(BaseStore):
                         start_index=start_index,
                         end_index=end_index,
                         char_count=int(metadata["char_count"]),
-                        token_count=metadata.get("token_count"),
                         context=metadata.get("context"),
                         origin=origin,
                         attributes=attributes or None,

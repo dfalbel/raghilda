@@ -185,30 +185,6 @@ def test_insert_and_retrieve():
         assert chunk.text is not None
 
 
-def test_chroma_retrieval_preserves_optional_token_count():
-    store = ChromaDBStore.create(
-        location=":memory:",
-        embed=DummyEmbeddingFunction(),
-        name="test_store_token_count",
-        overwrite=True,
-    )
-    doc = MarkdownDocument(origin="doc", content="hello world")
-    doc.chunks = [
-        MarkdownChunk(
-            start_index=0,
-            end_index=5,
-            text="hello",
-            char_count=5,
-            token_count=1,
-        )
-    ]
-    store.upsert(doc)
-
-    result = store.retrieve("hello", top_k=1, deoverlap=False)[0]
-    assert result.char_count == 5
-    assert result.token_count == 1
-
-
 def test_insert_same_content_but_different_chunking_updates():
     store = ChromaDBStore.create(
         location=":memory:",

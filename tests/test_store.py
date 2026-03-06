@@ -99,26 +99,6 @@ class TestDuckDBStore:
     def test_insert(self, store_with_docs):
         assert store_with_docs.size() == 1
 
-    def test_upsert_preserves_optional_token_count(self, store):
-        doc = MarkdownDocument(origin="token-count-doc", content="hello world")
-        doc.chunks = [
-            MarkdownChunk(
-                start_index=0,
-                end_index=5,
-                text="hello",
-                char_count=5,
-                token_count=1,
-            )
-        ]
-
-        store.upsert(doc)
-
-        row = store.con.execute(
-            "SELECT char_count, token_count FROM embeddings WHERE origin = ?",
-            [doc.origin],
-        ).fetchone()
-        assert row == (5, 1)
-
     def test_insert_same_origin_skips_unchanged_by_default(self):
         embed = CountingEmbedding()
         store = DuckDBStore.create(
@@ -3103,7 +3083,6 @@ def test_create_does_not_add_chunk_text_column_to_embeddings():
         "start_index",
         "end_index",
         "char_count",
-        "token_count",
         "context",
     }
 

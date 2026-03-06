@@ -12,22 +12,22 @@ from chonkie.types import (
 )  # noqa: E402
 from raghilda.chunk import Chunk  # noqa: E402
 from raghilda.document import Document, MarkdownDocument  # noqa: E402
-from raghilda.types import DocumentLike, TokenCountChunkLike  # noqa: E402
+from raghilda.types import ChunkLike, DocumentLike  # noqa: E402
 from raghilda.store import DuckDBStore  # noqa: E402
 
 TokenChunker = getattr(chonkie, "TokenChunker")
 
 
 class TestChonkieChunkCompatibility:
-    def test_chonkie_chunk_satisfies_token_count_chunk_like(self):
-        """Chonkie Chunk should satisfy the upstream token-count protocol."""
+    def test_chonkie_chunk_satisfies_chunk_like(self):
+        """Chonkie Chunk should satisfy the chunk-like protocol."""
         chunk = ChonkieChunk(
             text="hello world",
             start_index=0,
             end_index=11,
             token_count=2,
         )
-        assert isinstance(chunk, TokenCountChunkLike)
+        assert isinstance(chunk, ChunkLike)
 
     def test_from_any_converts_chonkie_chunk(self):
         """Chunk.from_any should convert a chonkie Chunk."""
@@ -44,7 +44,6 @@ class TestChonkieChunkCompatibility:
         assert result.start_index == 0
         assert result.end_index == 11
         assert result.char_count == 11
-        assert result.token_count == 2
 
     def test_from_any_preserves_chonkie_chunk_context(self):
         """Chunk.from_any should preserve context from chonkie Chunk."""

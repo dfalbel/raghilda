@@ -23,7 +23,6 @@ def default_merge(target: RetrievedChunk, source: RetrievedChunk) -> None:
     - Aggregating attributes into per-chunk value lists (chunk order)
     - Keeping target context unchanged (first overlapping chunk wins)
     - Updating char_count based on the new text length
-    - Clearing token_count because merged text no longer maps to upstream tokenization
 
     Parameters
     ----------
@@ -48,7 +47,6 @@ def default_merge(target: RetrievedChunk, source: RetrievedChunk) -> None:
         target.chunk_ids = target_ids
     _merge_attributes(target, source)
     target.char_count = len(target.text)
-    target.token_count = None
 
 
 def _merge_attributes(target: RetrievedChunk, source: RetrievedChunk) -> None:
@@ -122,7 +120,7 @@ def deoverlap_chunks(
         Function to merge two overlapping chunks. Takes (target, source) and
         modifies target in place to incorporate source. Defaults to `default_merge`
         which extends text, updates end_index, combines metrics, aggregates
-        attributes into lists, updates char_count, and clears token_count.
+        attributes into lists and updates char_count.
 
     Returns
     -------

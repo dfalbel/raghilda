@@ -1,7 +1,7 @@
 import pytest
 from raghilda.chunk import Chunk
 from raghilda.document import Document
-from raghilda.types import ChunkLike, DocumentLike, IntoChunk, TokenCountChunkLike
+from raghilda.types import ChunkLike, DocumentLike, IntoChunk
 
 
 class TestChunkLikeProtocol:
@@ -42,16 +42,14 @@ class TestChunkLikeProtocol:
         assert result.text == "hello"
         assert result.start_index == 0
 
-    def test_from_any_accepts_upstream_token_count_without_char_count(self):
+    def test_from_any_uses_text_length_when_char_count_is_missing(self):
         class MyChunk:
             text = "hello world"
             start_index = 0
             end_index = 11
-            token_count = 2
 
         result = Chunk.from_any(MyChunk())
         assert result.char_count == 11
-        assert result.token_count == 2
 
     def test_from_any_preserves_context_if_present(self):
         class MyChunkWithContext:
@@ -169,15 +167,6 @@ class TestIsinstance:
             char_count = 5
 
         assert isinstance(WithAttributes(), ChunkLike) is True
-
-    def test_isinstance_token_count_chunk_like_true_for_tokenized_input(self):
-        class WithTokenCount:
-            text = "hello world"
-            start_index = 0
-            end_index = 11
-            token_count = 2
-
-        assert isinstance(WithTokenCount(), TokenCountChunkLike) is True
 
     def test_isinstance_chunk_like_false_for_only_to_chunk(self):
         class OnlyToChunk:

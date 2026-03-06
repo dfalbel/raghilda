@@ -58,7 +58,6 @@ class OpenAIMarkdownChunk(MarkdownChunk):
         end_index: Optional[int] = None,
         context=None,
         char_count=None,
-        token_count=None,
         origin=None,
         attributes=None,
     ):
@@ -73,7 +72,6 @@ class OpenAIMarkdownChunk(MarkdownChunk):
             start_index=start_index,
             end_index=end_index,
             char_count=char_count,
-            token_count=token_count,
             context=context,
             origin=origin,
             attributes=attributes,
@@ -91,7 +89,6 @@ class RetrievedOpenAIMarkdownChunk(OpenAIMarkdownChunk, RetrievedChunk):
         end_index: Optional[int] = None,
         context=None,
         char_count=None,
-        token_count=None,
         origin=None,
         metrics=None,
         chunk_ids=None,
@@ -103,7 +100,6 @@ class RetrievedOpenAIMarkdownChunk(OpenAIMarkdownChunk, RetrievedChunk):
             end_index=end_index,
             context=context,
             char_count=char_count,
-            token_count=token_count,
             origin=origin,
             attributes=attributes,
         )
