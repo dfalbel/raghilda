@@ -18,7 +18,7 @@ from raghilda.embedding import (
 )
 
 
-from chromadb import EmbeddingFunction, Embeddings, Documents
+from chromadb import EmbeddingFunction, Embeddings, Documents  # pyright: ignore[reportMissingImports]
 
 
 class DummyEmbeddingFunction(EmbeddingFunction):
@@ -1141,7 +1141,7 @@ class TestChromaEmbeddingConversion:
 
     def test_embedding_openai_is_converted_internally(self):
         """EmbeddingOpenAI should convert to a working native ChromaDB function."""
-        from chromadb.utils.embedding_functions import OpenAIEmbeddingFunction
+        from chromadb.utils.embedding_functions import OpenAIEmbeddingFunction  # pyright: ignore[reportMissingImports]
         from raghilda._chroma_store import _to_chroma_embedding_function
         from raghilda.embedding import EmbeddingOpenAI
 
@@ -1159,7 +1159,7 @@ class TestChromaEmbeddingConversion:
 
     def test_embedding_cohere_is_converted_internally(self):
         """EmbeddingCohere should convert to a working native ChromaDB function."""
-        from chromadb.utils.embedding_functions import CohereEmbeddingFunction
+        from chromadb.utils.embedding_functions import CohereEmbeddingFunction  # pyright: ignore[reportMissingImports]
         from raghilda._chroma_store import _to_chroma_embedding_function
         from raghilda.embedding import EmbeddingCohere
 

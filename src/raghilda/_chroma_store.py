@@ -51,6 +51,7 @@ from ._store_metadata import AttributesStoreMetadata, attributes_schema_from_spe
 
 if TYPE_CHECKING:
     import numpy as np
+    import chromadb.api.types  # pyright: ignore[reportMissingImports]
     from chromadb.api.types import Documents, EmbeddingFunction  # pyright: ignore[reportMissingImports]
 
     ChromaEmbeddingFunction: TypeAlias = EmbeddingFunction[Documents]
@@ -94,8 +95,8 @@ def _ensure_no_reserved_attributes(
 
 # ChromaEmbeddingAdapter is only defined when chromadb is installed
 try:
-    from chromadb import EmbeddingFunction as _EmbeddingFunctionBase
-    from chromadb.utils.embedding_functions import register_embedding_function
+    from chromadb import EmbeddingFunction as _EmbeddingFunctionBase  # pyright: ignore[reportMissingImports]
+    from chromadb.utils.embedding_functions import register_embedding_function  # pyright: ignore[reportMissingImports]
 
     class ChromaEmbeddingAdapter(_EmbeddingFunctionBase):
         """Adapter to use any raghilda EmbeddingProvider with ChromaDB.
@@ -183,7 +184,7 @@ def _chroma_embedding_from_openai(
 ) -> ChromaEmbeddingFunction:
     import os
 
-    from chromadb.utils.embedding_functions import OpenAIEmbeddingFunction
+    from chromadb.utils.embedding_functions import OpenAIEmbeddingFunction  # pyright: ignore[reportMissingImports]
 
     if os.getenv("CHROMA_OPENAI_API_KEY"):
         return cast(
@@ -217,7 +218,7 @@ def _chroma_embedding_from_cohere(
 ) -> ChromaEmbeddingFunction:
     import os
 
-    from chromadb.utils.embedding_functions import CohereEmbeddingFunction
+    from chromadb.utils.embedding_functions import CohereEmbeddingFunction  # pyright: ignore[reportMissingImports]
 
     if os.getenv("CHROMA_COHERE_API_KEY"):
         return cast(
@@ -415,7 +416,11 @@ class ChromaDBStore(BaseStore):
         overwrite: bool = False,
         name: Optional[str] = None,
         title: Optional[str] = None,
-        embed: Optional[EmbeddingProvider | ChromaEmbeddingFunction] = None,
+        embed: (
+            EmbeddingProvider
+            | chromadb.api.types.EmbeddingFunction[chromadb.api.types.Documents]
+            | None
+        ) = None,
         collection_metadata: Optional[dict[str, Any]] = None,
         attributes: Optional[AttributesSchemaSpec] = None,
         client: Any = None,
