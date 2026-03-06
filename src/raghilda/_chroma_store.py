@@ -256,9 +256,9 @@ def _chroma_embedding_from_provider(
     provider: EmbeddingProvider,
 ) -> "ChromaEmbeddingFunction":
     _import_chromadb()
-    if isinstance(provider, EmbeddingOpenAI):
+    if type(provider) is EmbeddingOpenAI:
         return _chroma_embedding_from_openai(provider)
-    if isinstance(provider, EmbeddingCohere):
+    if type(provider) is EmbeddingCohere:
         return _chroma_embedding_from_cohere(provider)
     if "ChromaEmbeddingAdapter" not in globals():
         raise _module_not_found_error()

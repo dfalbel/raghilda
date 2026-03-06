@@ -1354,3 +1354,34 @@ class TestChromaEmbeddingAdapter:
 
         assert isinstance(result, ChromaEmbeddingAdapter)
         assert result._provider is provider
+
+    def test_adapter_used_for_embedding_openai_subclass(self):
+        """Subclasses should not be coerced to a native Chroma implementation."""
+        from raghilda._chroma_store import (
+            _to_chroma_embedding_function,
+            ChromaEmbeddingAdapter,
+        )
+        from raghilda.embedding import EmbeddingOpenAI
+
+        class CustomOpenAIProvider(EmbeddingOpenAI):
+            def __init__(self):
+                self.model = "custom-openai"
+                self.base_url = "https://example.com/v1"
+                self.api_key = "test-key"
+                self.batch_size = 1
+
+            def embed(self, x, input_type=EmbedInputType.DOCUMENT):
+                return [[1.0, 2.0, 3.0] for _ in x]
+
+            def get_config(self):
+                return {"type": "CustomOpenAIProvider"}
+
+            @classmethod
+            def from_config(cls, config):
+                return cls()
+
+        provider = CustomOpenAIProvider()
+        result = _to_chroma_embedding_function(provider)
+
+        assert isinstance(result, ChromaEmbeddingAdapter)
+        assert result._provider is provider
