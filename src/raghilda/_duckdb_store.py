@@ -49,6 +49,7 @@ _RESERVED_SYSTEM_COLUMNS = {
     "text",
     "start_index",
     "end_index",
+    "char_count",
     "token_count",
     "metric_name",
     "metric_value",
@@ -59,7 +60,9 @@ _FILTERABLE_BASE_COLUMNS = {
     "origin",
     "start_index",
     "end_index",
+    "char_count",
     "context",
+    "token_count",
 }
 
 
@@ -73,19 +76,19 @@ class DuckDBMarkdownChunk(MarkdownChunk):
         start_index: int,
         end_index: int,
         context=None,
+        char_count=None,
         token_count=None,
         origin=None,
         attributes=None,
     ):
-        # Compute token_count if not provided
-        if token_count is None:
-            token_count = len(text)
+        if char_count is None:
+            char_count = len(text)
 
-        # Initialize parent class
         super().__init__(
             text=text,
             start_index=start_index,
             end_index=end_index,
+            char_count=char_count,
             token_count=token_count,
             context=context,
             origin=origin,
@@ -103,6 +106,7 @@ class RetrievedDuckDBMarkdownChunk(DuckDBMarkdownChunk, RetrievedChunk):
         start_index: int,
         end_index: int,
         context=None,
+        char_count=None,
         token_count=None,
         origin=None,
         metrics=None,
@@ -115,6 +119,7 @@ class RetrievedDuckDBMarkdownChunk(DuckDBMarkdownChunk, RetrievedChunk):
             start_index=start_index,
             end_index=end_index,
             context=context,
+            char_count=char_count,
             token_count=token_count,
             origin=origin,
             attributes=attributes,
@@ -338,6 +343,8 @@ class DuckDBStore(BaseStore):
             chunk_id INTEGER DEFAULT nextval('chunk_id_seq'),
             start_index INTEGER,
             end_index INTEGER,
+            char_count INTEGER,
+            token_count INTEGER,
             PRIMARY KEY (origin, start_index, end_index),
             context VARCHAR{tail_columns_sql}
         );
@@ -648,7 +655,6 @@ class DuckDBStore(BaseStore):
         for index, chunk_data in enumerate(chunks):
             row = dict(chunk_data)
 
-            row.pop("token_count", None)
             row.pop("attributes", None)
             row.pop("text", None)
             row.pop("id", None)
@@ -701,6 +707,8 @@ class DuckDBStore(BaseStore):
             row: list[Any] = [
                 chunk.start_index,
                 chunk.end_index,
+                chunk.char_count,
+                chunk.token_count,
                 chunk.context,
             ]
             row.extend(
@@ -723,6 +731,8 @@ class DuckDBStore(BaseStore):
             SELECT
                 e.start_index,
                 e.end_index,
+                e.char_count,
+                e.token_count,
                 e.context
                 {attribute_select}
             FROM embeddings e
@@ -736,12 +746,23 @@ class DuckDBStore(BaseStore):
         for row in rows:
             start_index = int(row[0])
             end_index = int(row[1])
-            context = row[2]
+            char_count = int(row[2])
+            token_count = None if row[3] is None else int(row[3])
+            context = row[4]
             attribute_values = [
-                self._coerce_chunk_layout_attribute_value(col, row[3 + idx])
+                self._coerce_chunk_layout_attribute_value(col, row[5 + idx])
                 for idx, col in enumerate(attributes_columns)
             ]
-            records.append((start_index, end_index, context, *attribute_values))
+            records.append(
+                (
+                    start_index,
+                    end_index,
+                    char_count,
+                    token_count,
+                    context,
+                    *attribute_values,
+                )
+            )
         return records
 
     def _coerce_chunk_layout_attribute_value(self, column: str, value: Any) -> Any:
@@ -763,6 +784,8 @@ class DuckDBStore(BaseStore):
             SELECT
                 start_index,
                 end_index,
+                char_count,
+                token_count,
                 context
                 {attribute_select}
             FROM embeddings
@@ -798,7 +821,12 @@ class DuckDBStore(BaseStore):
                     start_index=start_index,
                     end_index=end_index,
                     text=chunk_text,
-                    token_count=len(chunk_text),
+                    char_count=int(row_dict["char_count"]),
+                    token_count=(
+                        None
+                        if row_dict.get("token_count") is None
+                        else int(row_dict["token_count"])
+                    ),
                     context=row_dict.get("context"),
                     origin=origin,
                     attributes=attributes or None,
@@ -843,7 +871,8 @@ class DuckDBStore(BaseStore):
             Can be a SQL-like string or a dict AST.
             Example string: `"tenant = 'docs' AND priority >= 2"`.
             Supports declared attributes plus built-in columns:
-            `chunk_id`, `origin`, `start_index`, `end_index`, and `context`.
+            `chunk_id`, `origin`, `start_index`, `end_index`, `char_count`,
+            `context`, and `token_count`.
 
         Returns
         -------
@@ -913,7 +942,8 @@ class DuckDBStore(BaseStore):
         attributes_filter
             Optional attribute filter as SQL-like string or dict AST.
             Supports declared attributes plus built-in columns:
-            `chunk_id`, `origin`, `start_index`, `end_index`, and `context`.
+            `chunk_id`, `origin`, `start_index`, `end_index`, `char_count`,
+            `context`, and `token_count`.
 
         Returns
         -------
@@ -964,6 +994,8 @@ class DuckDBStore(BaseStore):
             doc.origin AS origin,
             e.start_index,
             e.end_index,
+            e.char_count,
+            e.token_count,
             e.context,
             {attribute_select}
             doc.text[e.start_index + 1:e.end_index] AS text,
@@ -1038,7 +1070,8 @@ class DuckDBStore(BaseStore):
         attributes_filter
             Optional attribute filter as SQL-like string or dict AST.
             Supports declared attributes plus built-in columns:
-            `chunk_id`, `origin`, `start_index`, `end_index`, and `context`.
+            `chunk_id`, `origin`, `start_index`, `end_index`, `char_count`,
+            `context`, and `token_count`.
 
         Returns
         -------
@@ -1065,6 +1098,8 @@ class DuckDBStore(BaseStore):
                 doc.origin AS origin,
                 e.start_index, 
                 e.end_index, 
+                e.char_count,
+                e.token_count,
                 e.context, 
                 {attribute_select}
                 doc.text[e.start_index + 1:e.end_index] AS text,
@@ -1299,6 +1334,8 @@ def _validate_required_schema(
         "chunk_id",
         "start_index",
         "end_index",
+        "char_count",
+        "token_count",
         "context",
         *attributes_schema.keys(),
     }

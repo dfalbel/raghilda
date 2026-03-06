@@ -176,3 +176,10 @@ def test_heading_with_space() -> None:
     chunks = chunker.chunk(md)
     assert len(chunks) == 1
     assert chunks[0].context is None
+
+
+def test_chunker_sets_char_count_without_token_count() -> None:
+    chunker = MarkdownChunker(chunk_size=50, target_overlap=0, max_snap_distance=0)
+    chunks = chunker.chunk("hello world")
+    assert chunks[0].char_count == len(chunks[0].text)
+    assert chunks[0].token_count is None

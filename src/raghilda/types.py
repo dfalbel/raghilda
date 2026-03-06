@@ -10,10 +10,12 @@ from ._types import (
     ChunkerLike,
     IntoChunk,
     IntoDocument,
+    TokenCountChunkLike,
 )
 
 __all__ = [
     "ChunkLike",
+    "TokenCountChunkLike",
     "DocumentLike",
     "ChunkerLike",
     "IntoChunk",

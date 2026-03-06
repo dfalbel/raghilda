@@ -18,6 +18,16 @@ class ChunkLike(Protocol):
     text: str
     start_index: int
     end_index: int
+    char_count: int
+
+
+@runtime_checkable
+class TokenCountChunkLike(Protocol):
+    """Any chunk-like object that only exposes an upstream token count."""
+
+    text: str
+    start_index: int
+    end_index: int
     token_count: int
 
 
@@ -33,7 +43,7 @@ class DocumentLike(Protocol):
     """Any document-like object."""
 
     content: str
-    chunks: Optional[Sequence[ChunkLike]]
+    chunks: Optional[Sequence[ChunkLike | TokenCountChunkLike]]
 
 
 @runtime_checkable

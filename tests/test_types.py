@@ -1,12 +1,12 @@
 import pytest
 from raghilda.chunk import Chunk
 from raghilda.document import Document
-from raghilda.types import ChunkLike, DocumentLike, IntoChunk
+from raghilda.types import ChunkLike, DocumentLike, IntoChunk, TokenCountChunkLike
 
 
 class TestChunkLikeProtocol:
     def test_chunk_satisfies_chunk_like(self):
-        chunk = Chunk(text="hello", start_index=0, end_index=5, token_count=5)
+        chunk = Chunk(text="hello", start_index=0, end_index=5, char_count=5)
         assert isinstance(chunk, ChunkLike)
 
     def test_custom_class_satisfies_chunk_like(self):
@@ -14,7 +14,7 @@ class TestChunkLikeProtocol:
             text = "hello"
             start_index = 0
             end_index = 5
-            token_count = 5
+            char_count = 5
 
         assert isinstance(MyChunk(), ChunkLike)
 
@@ -22,12 +22,12 @@ class TestChunkLikeProtocol:
         class PartialChunk:
             text = "hello"
             start_index = 0
-            # missing end_index and token_count
+            # missing end_index and char_count
 
         assert not isinstance(PartialChunk(), ChunkLike)
 
     def test_dict_is_not_chunk_like(self):
-        d = {"text": "hello", "start_index": 0, "end_index": 5, "token_count": 5}
+        d = {"text": "hello", "start_index": 0, "end_index": 5, "char_count": 5}
         assert not isinstance(d, ChunkLike)
 
     def test_from_any_with_chunk_like(self):
@@ -35,19 +35,30 @@ class TestChunkLikeProtocol:
             text = "hello"
             start_index = 0
             end_index = 5
-            token_count = 5
+            char_count = 5
 
         result = Chunk.from_any(MyChunk())
         assert isinstance(result, Chunk)
         assert result.text == "hello"
         assert result.start_index == 0
 
+    def test_from_any_accepts_upstream_token_count_without_char_count(self):
+        class MyChunk:
+            text = "hello world"
+            start_index = 0
+            end_index = 11
+            token_count = 2
+
+        result = Chunk.from_any(MyChunk())
+        assert result.char_count == 11
+        assert result.token_count == 2
+
     def test_from_any_preserves_context_if_present(self):
         class MyChunkWithContext:
             text = "hello"
             start_index = 0
             end_index = 5
-            token_count = 5
+            char_count = 5
             context = "# Header"
 
         result = Chunk.from_any(MyChunkWithContext())
@@ -58,7 +69,7 @@ class TestChunkLikeProtocol:
             text = "hello"
             start_index = 0
             end_index = 5
-            token_count = 5
+            char_count = 5
 
         result = Chunk.from_any(MyChunkNoContext())
         assert result.context is None
@@ -68,18 +79,14 @@ class TestIntoChunkProtocol:
     def test_class_with_to_chunk_satisfies_into_chunk(self):
         class Convertible:
             def to_chunk(self) -> Chunk:
-                return Chunk(
-                    text="converted", start_index=0, end_index=9, token_count=9
-                )
+                return Chunk(text="converted", start_index=0, end_index=9, char_count=9)
 
         assert isinstance(Convertible(), IntoChunk)
 
     def test_from_any_calls_to_chunk(self):
         class Convertible:
             def to_chunk(self) -> Chunk:
-                return Chunk(
-                    text="converted", start_index=0, end_index=9, token_count=9
-                )
+                return Chunk(text="converted", start_index=0, end_index=9, char_count=9)
 
         result = Chunk.from_any(Convertible())
         assert result.text == "converted"
@@ -115,7 +122,7 @@ class TestIntoChunkProtocol:
         class BadConvertible:
             def to_chunk(self, required_arg):
                 return Chunk(
-                    text=required_arg, start_index=0, end_index=5, token_count=5
+                    text=required_arg, start_index=0, end_index=5, char_count=5
                 )
 
         assert isinstance(BadConvertible(), IntoChunk)
@@ -128,7 +135,7 @@ class TestIntoChunkProtocol:
         class PropertyChunk:
             @property
             def to_chunk(self):
-                return Chunk(text="prop", start_index=0, end_index=4, token_count=4)
+                return Chunk(text="prop", start_index=0, end_index=4, char_count=4)
 
         # isinstance returns True for properties too (has the attribute)
         assert isinstance(PropertyChunk(), IntoChunk)
@@ -150,7 +157,7 @@ class TestIsinstance:
             text = "hello"
             start_index = 0
             end_index = 5
-            token_count = 5
+            char_count = 5
 
         assert isinstance(OnlyChunkLike(), IntoChunk) is False
 
@@ -159,9 +166,18 @@ class TestIsinstance:
             text = "hello"
             start_index = 0
             end_index = 5
-            token_count = 5
+            char_count = 5
 
         assert isinstance(WithAttributes(), ChunkLike) is True
+
+    def test_isinstance_token_count_chunk_like_true_for_tokenized_input(self):
+        class WithTokenCount:
+            text = "hello world"
+            start_index = 0
+            end_index = 11
+            token_count = 2
+
+        assert isinstance(WithTokenCount(), TokenCountChunkLike) is True
 
     def test_isinstance_chunk_like_false_for_only_to_chunk(self):
         class OnlyToChunk:
@@ -177,11 +193,11 @@ class TestIsinstance:
             text = "from_attributes"
             start_index = 0
             end_index = 15
-            token_count = 15
+            char_count = 15
 
             def to_chunk(self) -> Chunk:
                 return Chunk(
-                    text="from_to_chunk", start_index=0, end_index=13, token_count=13
+                    text="from_to_chunk", start_index=0, end_index=13, char_count=13
                 )
 
         result = Chunk.from_any(Both())
@@ -214,7 +230,7 @@ class TestDocumentProtocols:
             text = "chunk1"
             start_index = 0
             end_index = 6
-            token_count = 6
+            char_count = 6
 
         class MyDoc:
             content = "chunk1 chunk2"
