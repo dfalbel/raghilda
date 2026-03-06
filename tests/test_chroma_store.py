@@ -1116,18 +1116,19 @@ def test_ingest_lazy_evaluation():
     )
 
 
-class TestChromaConvertible:
-    """Tests for the ChromaConvertible protocol and to_chroma() conversion."""
+class TestChromaEmbeddingConversion:
+    """Tests for internal conversion to ChromaDB embedding functions."""
 
-    def test_embedding_openai_to_chroma_works(self):
-        """EmbeddingOpenAI.to_chroma() should return a working ChromaDB function."""
+    def test_embedding_openai_is_converted_internally(self):
+        """EmbeddingOpenAI should convert to a working native ChromaDB function."""
         from chromadb.utils.embedding_functions import OpenAIEmbeddingFunction
+        from raghilda._chroma_store import _to_chroma_embedding_function
         from raghilda.embedding import EmbeddingOpenAI
 
         test_helpers.skip_if_no_openai()
 
         provider = EmbeddingOpenAI(model="text-embedding-3-small")
-        chroma_func = provider.to_chroma()
+        chroma_func = _to_chroma_embedding_function(provider)
 
         assert isinstance(chroma_func, OpenAIEmbeddingFunction)
 
@@ -1136,15 +1137,16 @@ class TestChromaConvertible:
         assert len(embeddings) == 2
         assert all(len(emb) > 0 for emb in embeddings)
 
-    def test_embedding_cohere_to_chroma_works(self):
-        """EmbeddingCohere.to_chroma() should return a working ChromaDB function."""
+    def test_embedding_cohere_is_converted_internally(self):
+        """EmbeddingCohere should convert to a working native ChromaDB function."""
         from chromadb.utils.embedding_functions import CohereEmbeddingFunction
+        from raghilda._chroma_store import _to_chroma_embedding_function
         from raghilda.embedding import EmbeddingCohere
 
         test_helpers.skip_if_no_cohere_chroma()
 
         provider = EmbeddingCohere(model="embed-english-v3.0")
-        chroma_func = provider.to_chroma()
+        chroma_func = _to_chroma_embedding_function(provider)
 
         assert isinstance(chroma_func, CohereEmbeddingFunction)
 
