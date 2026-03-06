@@ -54,7 +54,6 @@ if TYPE_CHECKING:
     from chromadb.api.types import Documents, EmbeddingFunction  # pyright: ignore[reportMissingImports]
 
     ChromaEmbeddingFunction: TypeAlias = EmbeddingFunction[Documents]
-    ChromaEmbedding: TypeAlias = EmbeddingProvider | ChromaEmbeddingFunction
 
 
 _METADATA_TITLE_KEY = "raghilda_title"
@@ -271,12 +270,12 @@ def _to_chroma_embedding_function(embed: None) -> None: ...
 
 @overload
 def _to_chroma_embedding_function(
-    embed: "ChromaEmbedding",
+    embed: "EmbeddingProvider | ChromaEmbeddingFunction",
 ) -> "ChromaEmbeddingFunction": ...
 
 
 def _to_chroma_embedding_function(
-    embed: Optional["ChromaEmbedding"],
+    embed: Optional["EmbeddingProvider | ChromaEmbeddingFunction"],
 ) -> Optional["ChromaEmbeddingFunction"]:
     """Convert an embedding provider to a ChromaDB embedding function if needed.
 
@@ -416,7 +415,7 @@ class ChromaDBStore(BaseStore):
         overwrite: bool = False,
         name: Optional[str] = None,
         title: Optional[str] = None,
-        embed: Optional[ChromaEmbedding] = None,
+        embed: Optional[EmbeddingProvider | ChromaEmbeddingFunction] = None,
         collection_metadata: Optional[dict[str, Any]] = None,
         attributes: Optional[AttributesSchemaSpec] = None,
         client: Any = None,
