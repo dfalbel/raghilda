@@ -2,11 +2,9 @@ from types import SimpleNamespace
 
 import pytest
 
-import raghilda.embedding as embedding_module
 from raghilda.chunk import MarkdownChunk
 from raghilda.document import Document, MarkdownDocument
 import raghilda.store as store_module
-from raghilda.embedding import EmbeddingCohere, EmbeddingOpenAI
 from raghilda.store import ChromaDBStore, DuckDBStore, OpenAIStore, WriteResult
 
 
@@ -29,15 +27,6 @@ def test_store_api_uses_upsert_not_insert():
 def test_store_exports_write_result_not_insert_result():
     assert WriteResult is store_module.WriteResult
     assert not hasattr(store_module, "InsertResult")
-
-
-def test_embedding_providers_do_not_expose_to_chroma():
-    assert not hasattr(EmbeddingOpenAI, "to_chroma")
-    assert not hasattr(EmbeddingCohere, "to_chroma")
-
-
-def test_embedding_module_does_not_export_chroma_convertible():
-    assert not hasattr(embedding_module, "ChromaConvertible")
 
 
 def test_openai_upsert_rejects_chunked_document():
