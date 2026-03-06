@@ -180,7 +180,7 @@ def _module_not_found_error() -> ModuleNotFoundError:
 
 def _chroma_embedding_from_openai(
     provider: EmbeddingOpenAI,
-) -> "ChromaEmbeddingFunction":
+) -> ChromaEmbeddingFunction:
     import os
 
     from chromadb.utils.embedding_functions import OpenAIEmbeddingFunction
@@ -214,7 +214,7 @@ def _chroma_embedding_from_openai(
 
 def _chroma_embedding_from_cohere(
     provider: EmbeddingCohere,
-) -> "ChromaEmbeddingFunction":
+) -> ChromaEmbeddingFunction:
     import os
 
     from chromadb.utils.embedding_functions import CohereEmbeddingFunction
@@ -253,7 +253,7 @@ def _chroma_embedding_from_cohere(
 
 def _chroma_embedding_from_provider(
     provider: EmbeddingProvider,
-) -> "ChromaEmbeddingFunction":
+) -> ChromaEmbeddingFunction:
     _import_chromadb()
     if type(provider) is EmbeddingOpenAI:
         return _chroma_embedding_from_openai(provider)
@@ -270,13 +270,13 @@ def _to_chroma_embedding_function(embed: None) -> None: ...
 
 @overload
 def _to_chroma_embedding_function(
-    embed: "EmbeddingProvider | ChromaEmbeddingFunction",
-) -> "ChromaEmbeddingFunction": ...
+    embed: EmbeddingProvider | ChromaEmbeddingFunction,
+) -> ChromaEmbeddingFunction: ...
 
 
 def _to_chroma_embedding_function(
-    embed: Optional["EmbeddingProvider | ChromaEmbeddingFunction"],
-) -> Optional["ChromaEmbeddingFunction"]:
+    embed: EmbeddingProvider | ChromaEmbeddingFunction | None,
+) -> ChromaEmbeddingFunction | None:
     """Convert an embedding provider to a ChromaDB embedding function if needed.
 
     Parameters
